@@ -47,6 +47,17 @@ dependencies:
   pdf: ^3.10.4
   printing: ^5.11.1
   share_plus: ^13.3.0  # ДОБАВЛЯЕМ
+  flutter_launcher_icons: "^0.14.4"
+
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/icon.png"
+  # Опционально для адаптивных икон Android (Android 8.0+)
+  adaptive_icon_background: "#3F51B5" # Цвет фона адаптивной иконки
+  adaptive_icon_foreground: "assets/icon/icon.png"
+
 
   # Для отправки (как в вашем проекте)
   # share_plus: ^7.2.1
