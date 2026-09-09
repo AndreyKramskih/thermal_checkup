@@ -145,6 +145,68 @@ class _ReportScreenState extends State<ReportScreen> {
                         },
                         color: Colors.orange,
                       ),
+                      // Кнопка "Поделиться PDF" (только отчет)
+                      IconButton(
+                        icon: const Icon(Icons.share),
+                        onPressed: () async {
+                          try {
+                            if (reportProvider.pdfFile == null) {
+                              await reportProvider.savePdf(
+                                projectName: 'ИТП №1',
+                              );
+                            }
+                            await reportProvider.shareReport();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  '📤 Открыто окно для отправки PDF',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('❌ Ошибка: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        },
+                        color: Colors.blue,
+                      ),
+                      // Кнопка "Поделиться PDF + Фото"
+                      IconButton(
+                        icon: const Icon(Icons.share_outlined),
+                        onPressed: () async {
+                          try {
+                            if (reportProvider.pdfFile == null) {
+                              await reportProvider.savePdf(
+                                projectName: 'ИТП №1',
+                              );
+                            }
+                            await reportProvider.shareReportWithPhotos(
+                              photoProvider.photos,
+                            );
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  '📤 Открыто окно для отправки PDF + фото',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('❌ Ошибка: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        },
+                        color: Colors.purple,
+                      ),
                     ],
                   ),
                 ),
@@ -438,7 +500,6 @@ class _ReportScreenState extends State<ReportScreen> {
     BuildContext context,
   ) {
     try {
-      // Получаем комментарии из провайдеров
       final electricalProvider = Provider.of<ElectricalProvider>(
         context,
         listen: false,
@@ -448,7 +509,6 @@ class _ReportScreenState extends State<ReportScreen> {
         listen: false,
       );
 
-      // Сохраняем комментарии в reportProvider
       reportProvider.setElectricalComments(electricalProvider.comments);
       reportProvider.setCommissioningComments(commissioningProvider.comments);
 
@@ -458,11 +518,9 @@ class _ReportScreenState extends State<ReportScreen> {
           .map((p) => p.description)
           .toList();
 
-      // Получаем данные с комментариями
       final electricalItems = electricalProvider.items;
       final commissioningItems = commissioningProvider.items;
 
-      // Формируем данные для отчета
       final electricalDataForReport = {
         'sensors': electricalItems['Датчики подключены согласно схеме'] == true
             ? '✅ Выполнено'
@@ -603,9 +661,64 @@ class _ReportScreenState extends State<ReportScreen> {
               },
               child: const Text('📋 Копировать текст'),
             ),
+            TextButton(
+              onPressed: () async {
+                try {
+                  Navigator.pop(context);
+                  if (reportProvider.pdfFile == null) {
+                    await reportProvider.savePdf(projectName: 'ИТП №1');
+                  }
+                  await reportProvider.shareReport();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('📤 Открыто окно для отправки PDF'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Ошибка: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              child: const Text('📤 Поделиться PDF'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _shareWithPhotos(reportProvider);
+              },
+              child: const Text('📸 Поделиться PDF + фото'),
+            ),
           ],
         );
       },
     );
+  }
+
+  void _shareWithPhotos(ReportProvider reportProvider) async {
+    try {
+      final photoProvider = Provider.of<PhotoProvider>(context, listen: false);
+
+      if (reportProvider.pdfFile == null) {
+        await reportProvider.savePdf(projectName: 'ИТП №1');
+      }
+
+      await reportProvider.shareReportWithPhotos(photoProvider.photos);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📤 Открыто окно для отправки PDF + фото'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    }
   }
 }

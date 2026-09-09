@@ -34,22 +34,19 @@ dependencies:
   # Только самые необходимые пакеты
   shared_preferences: ^2.2.0
   provider: ^6.0.5
-  intl: ^0.18.1
+  intl: ^0.20.3
   #path_provider: ^2.1.0
   #path: ^1.9.0
   # Сначала вернем image_picker для работы с фото
   image_picker: ^1.0.4
-  permission_handler: ^11.0.1
+  permission_handler: ^13.0.2
   # path_provider: ^2.1.0
   # path: ^1.9.0
-   # Для PDF
-  # pdf: ^3.10.4
-  # printing: ^5.11.1
-  # Syncfusion PDF - не использует objective_c
-  # syncfusion_flutter_pdf: ^23.2.7
+
   # Для PDF и печати (как в вашем проекте)
   pdf: ^3.10.4
   printing: ^5.11.1
+  share_plus: ^13.3.0  # ДОБАВЛЯЕМ
 
   # Для отправки (как в вашем проекте)
   # share_plus: ^7.2.1
