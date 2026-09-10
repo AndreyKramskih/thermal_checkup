@@ -43,60 +43,83 @@ class PhotoService {
     return null;
   }
 
-  // ========== ГЛАВНОЕ: имя файла = только название пользователя ==========
+  // ========== СОХРАНЕНИЕ С FALLBACK ==========
   Future<PhotoRecord> savePhoto(File imageFile, String description) async {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id = 'photo_$timestamp';
 
-    // Формируем имя файла из описания
     String safeName = _sanitizeFileName(description);
-
-    // Если описание пустое
     if (safeName.isEmpty) {
       safeName = 'photo';
     }
 
-    // Определяем директорию для сохранения
-    String appDirPath;
-    try {
-      final picturesDir = Directory('/storage/emulated/0/Pictures');
-      if (await picturesDir.exists()) {
-        appDirPath = '${picturesDir.path}/thermal_checkup';
-      } else {
-        final downloadsDir = Directory('/storage/emulated/0/Download');
-        if (await downloadsDir.exists()) {
-          appDirPath = '${downloadsDir.path}/thermal_checkup';
-        } else {
-          appDirPath = '/data/user/0/com.example.thermal_checkup/cache';
+    // ✅ FALLBACK: список путей по приоритету
+    final List<String> possibleDirs = [
+      '/storage/emulated/0/Pictures/thermal_checkup',
+      '/storage/emulated/0/Download/thermal_checkup',
+      '/storage/emulated/0/Documents/thermal_checkup',
+      '/storage/emulated/0/Android/data/com.example.thermal_checkup/files',
+      Directory.systemTemp.path,
+    ];
+
+    String? savedPath;
+    final List<String> triedPaths = [];
+
+    for (final dirPath in possibleDirs) {
+      try {
+        final dir = Directory(dirPath);
+        triedPaths.add(dirPath);
+
+        if (!await dir.exists()) {
+          try {
+            await dir.create(recursive: true);
+          } catch (e) {
+            print('⚠️ Не могу создать $dirPath: $e');
+            continue;
+          }
         }
-      }
 
-      final appDir = Directory(appDirPath);
-      if (!await appDir.exists()) {
-        await appDir.create(recursive: true);
+        // Умная нумерация для уникальности
+        String fileName = '$safeName.jpg';
+        String fullPath = '$dirPath/$fileName';
+        int counter = 1;
+
+        while (await File(fullPath).exists()) {
+          fileName = '${safeName}_$counter.jpg';
+          fullPath = '$dirPath/$fileName';
+          counter++;
+          if (counter > 1000) {
+            // Защита от бесконечного цикла
+            break;
+          }
+        }
+
+        // Копируем файл
+        await imageFile.copy(fullPath);
+
+        // Проверяем что файл реально скопировался
+        final copiedFile = File(fullPath);
+        if (await copiedFile.exists()) {
+          final size = await copiedFile.length();
+          if (size > 0) {
+            savedPath = fullPath;
+            print('✅ Фото сохранено: $fullPath (${(size / 1024).round()} KB)');
+            break;
+          } else {
+            print('⚠️ Файл создан, но пустой: $fullPath');
+          }
+        }
+      } catch (e) {
+        print('⚠️ Ошибка при сохранении в $dirPath: $e');
+        continue;
       }
-    } catch (e) {
-      appDirPath = '/data/user/0/com.example.thermal_checkup/cache';
     }
 
-    // ===== УМНАЯ НУМЕРАЦИЯ: если файл существует, добавляем (1), (2) и т.д. =====
-    String fileName = '$safeName.jpg';
-    String savedPath = '$appDirPath/$fileName';
-    int counter = 1;
-
-    while (await File(savedPath).exists()) {
-      fileName = '$safeName($counter).jpg';
-      savedPath = '$appDirPath/$fileName';
-      counter++;
-    }
-
-    // Копируем файл
-    try {
-      await imageFile.copy(savedPath);
-      print('✅ Фото сохранено: $savedPath');
-    } catch (e) {
+    // Fallback: если нигде не сохранилось — используем оригинальный путь
+    if (savedPath == null) {
       savedPath = imageFile.path;
-      print('⚠️ Не удалось скопировать файл: $e');
+      print('⚠️ Все пути недоступны. Использую оригинальный путь: $savedPath');
+      print('⚠️ Проверенные пути: ${triedPaths.join(", ")}');
     }
 
     final photo = PhotoRecord(
@@ -107,19 +130,15 @@ class PhotoService {
     );
 
     await _db.savePhoto(photo);
-
     return photo;
   }
 
   // Очищаем имя файла от недопустимых символов
   String _sanitizeFileName(String name) {
     return name
-        .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_') // Запрещенные символы
-        .replaceAll(RegExp(r'\s+'), '_') // Пробелы на _
-        .replaceAll(
-          RegExp(r'[^\w\u0400-\u04FF\-\.\(\)]'),
-          '',
-        ) // Оставляем буквы, цифры, дефис, точку, кириллицу, скобки
+        .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+        .replaceAll(RegExp(r'\s+'), '_')
+        .replaceAll(RegExp(r'[^\w\u0400-\u04FF\-\.\(\)]'), '')
         .trim();
   }
 

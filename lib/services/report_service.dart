@@ -69,6 +69,7 @@ class ReportService {
     final timeFormat = DateFormat('HH:mm');
     final fullFormat = DateFormat('dd.MM.yyyy HH:mm');
 
+    buffer.writeln('=' * 50);
     buffer.writeln('АКТ ПРОВЕРКИ БЛОЧНОГО ТЕПЛОВОГО ПУНКТА');
     buffer.writeln('=' * 50);
     buffer.writeln();
@@ -90,7 +91,7 @@ class ReportService {
 
       for (var entry in checklist.entries) {
         buffer.writeln();
-        buffer.writeln('  ${entry.key}:');
+        buffer.writeln('  >> ${entry.key}:');
         for (var item in entry.value) {
           final isChecked = item['isChecked'] ?? false;
           final title = item['title'] ?? '';
@@ -112,151 +113,116 @@ class ReportService {
 
     // 2. Проверка электромонтажа
     buffer.writeln();
-    buffer.writeln('-' * 60);
+    buffer.writeln('-' * 50);
     buffer.writeln('2. ПРОВЕРКА ЭЛЕКТРОМОНТАЖА');
     buffer.writeln('-' * 40);
 
     final electrical = data['electricalData'] as Map<String, dynamic>?;
     final electricalComments =
-        electrical?['comments'] as Map<String, String>? ?? {};
+        electrical?['comments'] as Map<String, dynamic>? ?? {};
 
     if (electrical != null) {
-      buffer.writeln(
-        '  • Соответствие подключения датчиков: ${electrical['sensors'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Датчики подключены согласно схеме']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${electricalComments['Датчики подключены согласно схеме']}',
-        );
-      }
+      final electricalItems = [
+        {
+          'key': 'sensors',
+          'commentKey': 'Датчики подключены согласно схеме',
+          'label': 'Соответствие подключения датчиков',
+        },
+        {
+          'key': 'relays',
+          'commentKey': 'Реле подключены согласно схеме',
+          'label': 'Соответствие подключения реле',
+        },
+        {
+          'key': 'pumps',
+          'commentKey': 'Насосы подключены согласно схеме',
+          'label': 'Соответствие подключения насосов',
+        },
+        {
+          'key': 'actuators',
+          'commentKey': 'Привода подключены согласно схеме',
+          'label': 'Соответствие подключения приводов',
+        },
+        {
+          'key': 'cableMarking',
+          'commentKey': 'Кабеля промаркированы согласно схеме',
+          'label': 'Маркировка кабелей',
+        },
+        {
+          'key': 'cableTypes',
+          'commentKey': 'Тип кабелей соответствует схеме',
+          'label': 'Соответствие типов кабелей',
+        },
+      ];
 
-      buffer.writeln(
-        '  • Соответствие подключения реле: ${electrical['relays'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Реле подключены согласно схеме']?.isNotEmpty ??
-          false) {
+      for (var item in electricalItems) {
         buffer.writeln(
-          '      Комментарий: ${electricalComments['Реле подключены согласно схеме']}',
+          '  • ${item['label']}: ${electrical[item['key']] ?? 'Не проверено'}',
         );
-      }
-
-      buffer.writeln(
-        '  • Соответствие подключения насосов: ${electrical['pumps'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Насосы подключены согласно схеме']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${electricalComments['Насосы подключены согласно схеме']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Соответствие подключения приводов: ${electrical['actuators'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Привода подключены согласно схеме']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${electricalComments['Привода подключены согласно схеме']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Маркировка кабелей: ${electrical['cableMarking'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Кабеля промаркированы согласно схеме']
-              ?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${electricalComments['Кабеля промаркированы согласно схеме']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Соответствие типов кабелей: ${electrical['cableTypes'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Тип кабелей соответствует схеме']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${electricalComments['Тип кабелей соответствует схеме']}',
-        );
+        final comment =
+            electricalComments[item['commentKey']]?.toString() ?? '';
+        if (comment.isNotEmpty) {
+          buffer.writeln('      Комментарий: $comment');
+        }
       }
     }
 
     // 3. Результаты ПНР
     buffer.writeln();
-    buffer.writeln('-' * 60);
+    buffer.writeln('-' * 50);
     buffer.writeln('3. РЕЗУЛЬТАТЫ ПНР');
     buffer.writeln('-' * 40);
 
     final commissioning = data['commissioningData'] as Map<String, dynamic>?;
     final commissioningComments =
-        commissioning?['comments'] as Map<String, String>? ?? {};
+        commissioning?['comments'] as Map<String, dynamic>? ?? {};
 
     if (commissioning != null) {
-      buffer.writeln(
-        '  • Работоспособность программы в контроллере: ${commissioning['controllerProgram'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Работоспособность программы в контроллере']
-              ?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${commissioningComments['Работоспособность программы в контроллере']}',
-        );
-      }
+      final commissioningItems = [
+        {
+          'key': 'controllerProgram',
+          'commentKey': 'Работоспособность программы в контроллере',
+          'label': 'Работоспособность программы в контроллере',
+        },
+        {
+          'key': 'panelProgram',
+          'commentKey': 'Работоспособность программы в панели',
+          'label': 'Работоспособность программы в панели',
+        },
+        {
+          'key': 'cabinetAssembly',
+          'commentKey': 'Правильность сборки шкафа согласно схемы',
+          'label': 'Правильность сборки шкафа',
+        },
+        {
+          'key': 'electricalScheme',
+          'commentKey': 'Правильность электросхемы',
+          'label': 'Правильность электросхемы',
+        },
+        {
+          'key': 'componentsQuality',
+          'commentKey': 'Отсутствие брака в компонентах',
+          'label': 'Отсутствие брака в компонентах',
+        },
+        {
+          'key': 'regulationQuality',
+          'commentKey': 'Качество регулирования',
+          'label': 'Качество регулирования',
+        },
+      ];
 
-      buffer.writeln(
-        '  • Работоспособность программы в панели: ${commissioning['panelProgram'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Работоспособность программы в панели']
-              ?.isNotEmpty ??
-          false) {
+      for (var item in commissioningItems) {
         buffer.writeln(
-          '      Комментарий: ${commissioningComments['Работоспособность программы в панели']}',
+          '  • ${item['label']}: ${commissioning[item['key']] ?? 'Не проверено'}',
         );
-      }
-
-      buffer.writeln(
-        '  • Правильность сборки шкафа: ${commissioning['cabinetAssembly'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Правильность сборки шкафа согласно схемы']
-              ?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${commissioningComments['Правильность сборки шкафа согласно схемы']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Правильность электросхемы: ${commissioning['electricalScheme'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Правильность электросхемы']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${commissioningComments['Правильность электросхемы']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Отсутствие брака в компонентах: ${commissioning['componentsQuality'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Отсутствие брака в компонентах']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${commissioningComments['Отсутствие брака в компонентах']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Качество регулирования: ${commissioning['regulationQuality'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Качество регулирования']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${commissioningComments['Качество регулирования']}',
-        );
+        final comment =
+            commissioningComments[item['commentKey']]?.toString() ?? '';
+        if (comment.isNotEmpty) {
+          buffer.writeln('      Комментарий: $comment');
+        }
       }
     }
+
     // 4. Фотоматериалы
     buffer.writeln();
     buffer.writeln('-' * 50);
@@ -305,6 +271,7 @@ class ReportService {
     }
   }
 
+  // ========== СОХРАНЕНИЕ С FALLBACK ==========
   Future<File> generateAndSavePdf({
     required String projectName,
     required DateTime reportTime,
@@ -317,26 +284,21 @@ class ReportService {
 
     final pdf = pw.Document();
 
-    // Очищаем текст - убираем все лишние символы
     String cleanText = reportText;
-    // Убираем эмодзи и спецсимволы
     cleanText = cleanText.replaceAll('✅', '[+]');
     cleanText = cleanText.replaceAll('❌', '[-]');
-    cleanText = cleanText.replaceAll('📅', '');
-    cleanText = cleanText.replaceAll('⏰', '');
-    cleanText = cleanText.replaceAll('📂', '');
-    cleanText = cleanText.replaceAll('💬', '');
-    cleanText = cleanText.replaceAll('📊', '');
+    cleanText = cleanText.replaceAll('📅', 'Дата:');
+    cleanText = cleanText.replaceAll('⏰', 'Время:');
+    cleanText = cleanText.replaceAll('📂', '>>');
+    cleanText = cleanText.replaceAll('💬', 'Комм:');
+    cleanText = cleanText.replaceAll('📊', 'Итого:');
     cleanText = cleanText.replaceAll('⚡', '•');
     cleanText = cleanText.replaceAll('🔧', '•');
-    cleanText = cleanText.replaceAll('📷', '');
+    cleanText = cleanText.replaceAll('📷', 'Фото:');
 
     final lines = cleanText.split('\n');
-
-    // Разбиваем текст на страницы
     final pages = _splitTextIntoPages(lines, font);
 
-    // Добавляем каждую страницу
     for (int pageIndex = 0; pageIndex < pages.length; pageIndex++) {
       final pageLines = pages[pageIndex];
       final isFirstPage = pageIndex == 0;
@@ -360,33 +322,82 @@ class ReportService {
     }
 
     final dateStr = DateFormat('yyyy-MM-dd_HH-mm').format(reportTime);
-    final filename = 'Отчет_ИТП_$dateStr.pdf';
 
-    // Сохраняем в Downloads
-    String savePath;
-    try {
-      final downloadsDir = Directory('/storage/emulated/0/Download');
-      if (await downloadsDir.exists()) {
-        savePath = '${downloadsDir.path}/$filename';
-      } else {
-        final documentsDir = Directory('/storage/emulated/0/Documents');
-        if (await documentsDir.exists()) {
-          savePath = '${documentsDir.path}/$filename';
-        } else {
-          savePath = '/storage/emulated/0/$filename';
+    // Очищаем имя проекта от недопустимых символов
+    String safeProjectName = projectName
+        .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+        .replaceAll(RegExp(r'\s+'), '_')
+        .trim();
+    if (safeProjectName.isEmpty) safeProjectName = 'ИТП';
+
+    final filename = 'Отчет_${safeProjectName}_$dateStr.pdf';
+
+    // ✅ FALLBACK: список путей по приоритету
+    final List<String> possibleDirs = [
+      '/storage/emulated/0/Download',
+      '/storage/emulated/0/Documents',
+      '/storage/emulated/0/Android/data/com.example.thermal_checkup/files',
+      Directory.systemTemp.path,
+    ];
+
+    final Uint8List pdfBytes = await pdf.save();
+    File? savedFile;
+    String? lastError;
+    final List<String> triedPaths = [];
+
+    for (final dirPath in possibleDirs) {
+      try {
+        final dir = Directory(dirPath);
+        triedPaths.add(dirPath);
+
+        if (!await dir.exists()) {
+          try {
+            await dir.create(recursive: true);
+          } catch (e) {
+            lastError = 'Не могу создать папку $dirPath: $e';
+            print('⚠️ $lastError');
+            continue;
+          }
         }
+
+        final filePath = '$dirPath/$filename';
+        final file = File(filePath);
+
+        // Записываем файл
+        await file.writeAsBytes(pdfBytes);
+
+        // Проверяем что файл реально записался
+        if (await file.exists()) {
+          final size = await file.length();
+          if (size > 0) {
+            savedFile = file;
+            print('✅ PDF сохранен: $filePath (${(size / 1024).round()} KB)');
+            break;
+          } else {
+            lastError = 'Файл создан, но пустой: $filePath';
+            print('⚠️ $lastError');
+          }
+        } else {
+          lastError = 'Файл не создан: $filePath';
+          print('⚠️ $lastError');
+        }
+      } catch (e) {
+        lastError = 'Ошибка записи в $dirPath: $e';
+        print('⚠️ $lastError');
+        continue;
       }
-    } catch (e) {
-      final tempDir = Directory.systemTemp;
-      savePath = '${tempDir.path}/$filename';
-      print('⚠️ Использую временную директорию: $savePath');
     }
 
-    final file = File(savePath);
-    await file.writeAsBytes(await pdf.save());
+    if (savedFile == null) {
+      throw Exception(
+        'Не удалось сохранить PDF.\n'
+        'Проверенные пути: ${triedPaths.join(", ")}\n'
+        'Последняя ошибка: $lastError',
+      );
+    }
 
-    print('✅ PDF сохранен: $savePath (${pages.length} страниц)');
-    return file;
+    print('✅ PDF итог: ${savedFile.path} (${pages.length} страниц)');
+    return savedFile;
   }
 
   List<List<String>> _splitTextIntoPages(List<String> allLines, pw.Font font) {
@@ -395,7 +406,6 @@ class ReportService {
     double currentHeight = 0;
     const double maxHeight = 750;
 
-    // Начальная высота (заголовок)
     currentHeight = 100;
 
     for (final line in allLines) {
@@ -403,11 +413,10 @@ class ReportService {
         continue;
       }
 
-      // Одинаковая высота для всех строк
       double lineHeight = 18;
-
-      // Если это заголовок - чуть больше
-      if (line.contains('АКТ') ||
+      if (line.contains('=') || line.contains('-')) {
+        lineHeight = 12;
+      } else if (line.contains('АКТ') ||
           line.contains('ПРОВЕРКА') ||
           line.contains('РЕЗУЛЬТАТЫ') ||
           line.contains('КОНЕЦ') ||
@@ -419,12 +428,6 @@ class ReportService {
         lineHeight = 22;
       }
 
-      // Если это разделитель
-      if (line.contains('=') || line.contains('-')) {
-        lineHeight = 12;
-      }
-
-      // Если это пустая строка
       if (line.trim().isEmpty) {
         lineHeight = 8;
       }
@@ -466,7 +469,7 @@ class ReportService {
     if (isFirstPage) {
       children.add(
         pw.Container(
-          padding: const pw.EdgeInsets.all(16),
+          padding: const pw.EdgeInsets.all(20),
           color: PdfColors.blue,
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -474,26 +477,25 @@ class ReportService {
               pw.Text(
                 'АКТ ПРОВЕРКИ',
                 style: pw.TextStyle(
-                  fontSize: 24,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.white,
-                  font: font,
-                ),
-              ),
-              pw.SizedBox(height: 4),
-              pw.Text(
-                'БЛОЧНОГО ТЕПЛОВОГО ПУНКТА',
-                style: pw.TextStyle(
-                  fontSize: 18,
+                  fontSize: 28,
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.white,
                   font: font,
                 ),
               ),
               pw.SizedBox(height: 8),
-              // ===== ВОТ ЗДЕСЬ НАЗВАНИЕ ПРОЕКТА =====
               pw.Text(
-                projectName, // <-- НАЗВАНИЕ ИЗ НАСТРОЕК
+                'БЛОЧНОГО ТЕПЛОВОГО ПУНКТА',
+                style: pw.TextStyle(
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                  font: font,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text(
+                projectName,
                 style: pw.TextStyle(
                   fontSize: 16,
                   color: PdfColors.white,
@@ -504,7 +506,7 @@ class ReportService {
               pw.Text(
                 'Дата формирования: ${DateFormat('dd.MM.yyyy HH:mm').format(reportTime)}',
                 style: pw.TextStyle(
-                  fontSize: 10,
+                  fontSize: 12,
                   color: PdfColors.white,
                   font: font,
                 ),
@@ -522,7 +524,7 @@ class ReportService {
           child: pw.Text(
             'Продолжение отчета',
             style: pw.TextStyle(
-              fontSize: 16,
+              fontSize: 18,
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.white,
               font: font,
@@ -533,14 +535,12 @@ class ReportService {
       children.add(pw.SizedBox(height: 8));
     }
 
-    // Добавляем все строки с одинаковым стилем
     for (final line in lines) {
       if (line.trim().isEmpty) {
         children.add(pw.SizedBox(height: 6));
         continue;
       }
 
-      // Определяем стиль для строки
       bool isBold =
           line.contains('АКТ') ||
           line.contains('БЛОЧНОГО') ||
@@ -554,8 +554,6 @@ class ReportService {
           line.contains('4.');
 
       bool isHeader = line.contains('=') || line.contains('-');
-
-      // Убираем лишние пробелы в начале
       String cleanLine = line.trim();
 
       children.add(
@@ -574,7 +572,6 @@ class ReportService {
       );
     }
 
-    // Номер страницы
     children.add(pw.SizedBox(height: 16));
     children.add(
       pw.Container(

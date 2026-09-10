@@ -24,23 +24,6 @@ class PhotoProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Добавление тестового фото (для демонстрации без камеры)
-  Future<void> addTestPhoto(String description) async {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final id = 'test_photo_$timestamp';
-
-    final photo = PhotoRecord(
-      id: id,
-      path: 'test_photo_$timestamp.jpg',
-      description: description,
-      createdAt: DateTime.now(),
-    );
-
-    await _db.savePhoto(photo);
-    _photos.add(photo);
-    notifyListeners();
-  }
-
   Future<void> deletePhoto(String id) async {
     await _db.deletePhoto(id);
     _photos.removeWhere((photo) => photo.id == id);

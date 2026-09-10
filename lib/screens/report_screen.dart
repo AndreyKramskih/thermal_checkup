@@ -176,12 +176,19 @@ class _ReportScreenState extends State<ReportScreen> {
                             await reportProvider.savePdf(
                               projectName: projectName,
                             );
-                            final path = reportProvider.pdfFile?.path ?? '';
+                            // final path = reportProvider.pdfFile?.path ?? '';
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('✅ PDF сохранен: $path'),
+                                content: Text(
+                                  '✅ PDF сохранен:\n${reportProvider.pdfFile?.path}',
+                                ),
                                 backgroundColor: Colors.green,
                                 duration: const Duration(seconds: 5),
+                                action: SnackBarAction(
+                                  label: 'OK',
+                                  textColor: Colors.white,
+                                  onPressed: () {},
+                                ),
                               ),
                             );
                           } catch (e) {
@@ -427,44 +434,45 @@ class _ReportScreenState extends State<ReportScreen> {
   }
 
   // ===== ДИАЛОГ РЕДАКТИРОВАНИЯ НАЗВАНИЯ ПРОЕКТА =====
+  // В report_screen.dart замените метод целиком:
+
   void _showEditProjectNameDialog(
     BuildContext context,
     ProjectProvider provider,
   ) {
-    final controller = TextEditingController(text: provider.projectName);
+    String newName = provider.projectName;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Название проекта'),
-        content: TextField(
-          controller: controller,
+        content: TextFormField(
+          initialValue: provider.projectName,
           decoration: const InputDecoration(
             labelText: 'Название теплового пункта',
             hintText: 'Например: ИТП №1',
             border: OutlineInputBorder(),
           ),
           autofocus: true,
+          onChanged: (value) => newName = value,
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Отмена'),
           ),
           TextButton(
             onPressed: () {
-              if (controller.text.trim().isNotEmpty) {
-                provider.setProjectName(controller.text.trim());
-                Navigator.pop(context);
+              if (newName.trim().isNotEmpty) {
+                provider.setProjectName(newName.trim());
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(
-                      '✅ Название сохранено: ${controller.text.trim()}',
-                    ),
+                    content: Text('✅ Название сохранено: ${newName.trim()}'),
                     backgroundColor: Colors.green,
                   ),
                 );
               }
+              Navigator.pop(dialogContext);
             },
             child: const Text('Сохранить'),
           ),
