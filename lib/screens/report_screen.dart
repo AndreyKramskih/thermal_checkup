@@ -370,8 +370,21 @@ class _ReportScreenState extends State<ReportScreen> {
                                         photo.description,
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w500,
+                                          fontSize: 14,
                                         ),
                                         maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      // Имя файла (для справки)
+                                      Text(
+                                        '📄 ${photo.path.split('/').last}',
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.blue,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                        maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       const SizedBox(height: 4),
