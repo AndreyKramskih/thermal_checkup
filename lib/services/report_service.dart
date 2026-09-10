@@ -297,7 +297,7 @@ class ReportService {
     cleanText = cleanText.replaceAll('📷', 'Фото:');
 
     final lines = cleanText.split('\n');
-    final pages = _splitTextIntoPages(lines, font);
+    final pages = _splitTextIntoPages(lines);
 
     for (int pageIndex = 0; pageIndex < pages.length; pageIndex++) {
       final pageLines = pages[pageIndex];
@@ -400,7 +400,7 @@ class ReportService {
     return savedFile;
   }
 
-  List<List<String>> _splitTextIntoPages(List<String> allLines, pw.Font font) {
+  List<List<String>> _splitTextIntoPages(List<String> allLines) {
     final pages = <List<String>>[];
     List<String> currentPage = [];
     double currentHeight = 0;

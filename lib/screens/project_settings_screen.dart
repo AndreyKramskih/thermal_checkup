@@ -54,12 +54,7 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
         ),
         // Оборачиваем в SingleChildScrollView для прокрутки при клавиатуре
         child: SingleChildScrollView(
-          padding: EdgeInsets.only(
-            left: 24,
-            right: 24,
-            top: 24,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-          ),
+          padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

@@ -5,15 +5,16 @@ import 'providers/photo_provider.dart';
 import 'providers/report_provider.dart';
 import 'providers/electrical_provider.dart';
 import 'providers/commissioning_provider.dart';
-import 'providers/project_provider.dart'; // ДОБАВЛЯЕМ
+import 'providers/project_provider.dart';
 import 'screens/home_screen.dart';
 import 'services/database_service.dart';
 
-void main() async {
+void main() {
+  // НЕ делаем await — запускаем UI сразу
   WidgetsFlutterBinding.ensureInitialized();
 
-  final dbService = DatabaseService();
-  await dbService.initDatabase();
+  // Инициализируем БД в фоне, не блокируя UI
+  DatabaseService().initDatabase();
 
   runApp(const MyApp());
 }
@@ -30,7 +31,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ReportProvider()),
         ChangeNotifierProvider(create: (_) => ElectricalProvider()),
         ChangeNotifierProvider(create: (_) => CommissioningProvider()),
-        ChangeNotifierProvider(create: (_) => ProjectProvider()), // ДОБАВЛЯЕМ
+        ChangeNotifierProvider(create: (_) => ProjectProvider()),
       ],
       child: MaterialApp(
         title: 'Тепловой пункт - Проверка',

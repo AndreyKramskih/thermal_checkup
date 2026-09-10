@@ -7,24 +7,6 @@ class PhotoService {
   final ImagePicker _picker = ImagePicker();
   final DatabaseService _db = DatabaseService();
 
-  Future<File?> takePhoto() async {
-    try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 1920,
-        maxHeight: 1080,
-        imageQuality: 85,
-      );
-
-      if (image != null) {
-        return File(image.path);
-      }
-    } catch (e) {
-      print('Ошибка при съемке: $e');
-    }
-    return null;
-  }
-
   Future<File?> pickFromGallery() async {
     try {
       final XFile? image = await _picker.pickImage(

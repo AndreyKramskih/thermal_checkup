@@ -15,26 +15,29 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
   @override
   void initState() {
     super.initState();
-    // Инициализация контроллеров после загрузки данных
+    // Инициализируем контроллеры СРАЗУ для всех ключей провайдера.
+    // Провайдер создаётся в MultiProvider до первого build этого экрана,
+    // поэтому его items.keys уже доступны.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _initControllers();
     });
   }
 
   void _initControllers() {
     final provider = Provider.of<ElectricalProvider>(context, listen: false);
-    for (var key in provider.items.keys) {
-      if (!_commentControllers.containsKey(key)) {
-        _commentControllers[key] = TextEditingController(
-          text: provider.comments[key] ?? '',
-        );
-      }
+    for (final key in provider.items.keys) {
+      _commentControllers.putIfAbsent(
+        key,
+        () => TextEditingController(text: provider.comments[key] ?? ''),
+      );
     }
+    setState(() {});
   }
 
   @override
   void dispose() {
-    for (var controller in _commentControllers.values) {
+    for (final controller in _commentControllers.values) {
       controller.dispose();
     }
     super.dispose();
@@ -44,9 +47,9 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
   Widget build(BuildContext context) {
     return Consumer<ElectricalProvider>(
       builder: (context, provider, child) {
-        // Инициализируем контроллеры если еще не сделали
+        // Пока контроллеры не готовы — показываем загрузку.
         if (_commentControllers.isEmpty) {
-          _initControllers();
+          return const Center(child: CircularProgressIndicator());
         }
 
         return Scaffold(
@@ -78,13 +81,7 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
               const SizedBox(height: 16),
               ...provider.items.keys.map((title) {
                 final bool value = provider.items[title] ?? false;
-
-                // Убеждаемся что контроллер существует
-                if (!_commentControllers.containsKey(title)) {
-                  _commentControllers[title] = TextEditingController(
-                    text: provider.comments[title] ?? '',
-                  );
-                }
+                final controller = _commentControllers[title]!;
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -111,7 +108,7 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
                         Padding(
                           padding: const EdgeInsets.only(left: 40),
                           child: TextField(
-                            controller: _commentControllers[title],
+                            controller: controller,
                             onChanged: (text) {
                               provider.setComment(title, text);
                             },
@@ -132,87 +129,67 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
                     ),
                   ),
                 );
-              }).toList(),
+              }),
               const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () {
-                  final completedCount = provider.items.values
-                      .where((v) => v == true)
-                      .length;
-                  final totalCount = provider.items.length;
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Сохранено! Выполнено $completedCount из $totalCount пунктов',
-                      ),
-                      backgroundColor: completedCount == totalCount
-                          ? Colors.green
-                          : Colors.blue,
-                      duration: const Duration(seconds: 3),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.save),
-                label: const Text('Сохранить результаты'),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 48),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Прогресс проверки электромонтажа',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Выполнено: ${provider.items.values.where((v) => v == true).length} из ${provider.items.length}',
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          Text(
-                            '${(provider.items.values.where((v) => v == true).length / provider.items.length * 100).round()}%',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value:
-                            provider.items.values
-                                .where((v) => v == true)
-                                .length /
-                            provider.items.length,
-                        backgroundColor: Colors.grey.shade200,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          Colors.blue,
-                        ),
-                        minHeight: 8,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              _ProgressCard(provider: provider),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _ProgressCard extends StatelessWidget {
+  final ElectricalProvider provider;
+
+  const _ProgressCard({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    final completed = provider.items.values.where((v) => v == true).length;
+    final total = provider.items.length;
+    final progress = total > 0 ? completed / total : 0.0;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Прогресс проверки электромонтажа',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Выполнено: $completed из $total',
+                  style: const TextStyle(fontSize: 14),
+                ),
+                Text(
+                  '${(progress * 100).round()}%',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: progress,
+              backgroundColor: Colors.grey.shade200,
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+              minHeight: 8,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

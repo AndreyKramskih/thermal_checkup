@@ -9,15 +9,16 @@ import 'providers/photo_provider.dart';
 import 'providers/report_provider.dart';
 import 'providers/electrical_provider.dart';
 import 'providers/commissioning_provider.dart';
-import 'providers/project_provider.dart'; // ДОБАВЛЯЕМ
+import 'providers/project_provider.dart';
 import 'screens/home_screen.dart';
 import 'services/database_service.dart';
 
-void main() async {
+void main() {
+  // НЕ делаем await — запускаем UI сразу
   WidgetsFlutterBinding.ensureInitialized();
 
-  final dbService = DatabaseService();
-  await dbService.initDatabase();
+  // Инициализируем БД в фоне, не блокируя UI
+  DatabaseService().initDatabase();
 
   runApp(const MyApp());
 }
@@ -34,7 +35,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ReportProvider()),
         ChangeNotifierProvider(create: (_) => ElectricalProvider()),
         ChangeNotifierProvider(create: (_) => CommissioningProvider()),
-        ChangeNotifierProvider(create: (_) => ProjectProvider()), // ДОБАВЛЯЕМ
+        ChangeNotifierProvider(create: (_) => ProjectProvider()),
       ],
       child: MaterialApp(
         title: 'Тепловой пункт - Проверка',
@@ -243,8 +244,12 @@ class ChecklistProvider extends ChangeNotifier {
 === FILE: lib\providers\commissioning_provider.dart ===
 
 import 'package:flutter/material.dart';
+import '../services/database_service.dart';
+import 'dart:async';
 
 class CommissioningProvider extends ChangeNotifier {
+  final DatabaseService _db = DatabaseService();
+
   final Map<String, bool> _items = {
     'Работоспособность программы в контроллере': false,
     'Работоспособность программы в панели': false,
@@ -255,30 +260,89 @@ class CommissioningProvider extends ChangeNotifier {
   };
 
   final Map<String, String> _comments = {};
+  bool _isLoaded = false;
+  Timer? _saveTimer;
 
   Map<String, bool> get items => _items;
   Map<String, String> get comments => _comments;
+  bool get isLoaded => _isLoaded;
+
+  CommissioningProvider() {
+    loadData();
+  }
+
+  Future<void> loadData() async {
+    try {
+      final data = await _db.getCommissioningData();
+      if (data != null) {
+        final itemsData = data['items'] as Map<String, dynamic>?;
+        final commentsData = data['comments'] as Map<String, dynamic>?;
+
+        if (itemsData != null) {
+          for (final key in itemsData.keys) {
+            _items[key] = itemsData[key] as bool? ?? false;
+          }
+        }
+        if (commentsData != null) {
+          for (final key in commentsData.keys) {
+            _comments[key] = commentsData[key] as String? ?? '';
+          }
+        }
+        print('✅ Данные ПНР загружены');
+      }
+      _isLoaded = true;
+      notifyListeners();
+    } catch (e) {
+      print('❌ Ошибка загрузки данных ПНР: $e');
+      _isLoaded = true;
+      notifyListeners();
+    }
+  }
+
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 500), _saveData);
+  }
+
+  Future<void> _saveData() async {
+    try {
+      final data = {'items': Map.from(_items), 'comments': Map.from(_comments)};
+      await _db.saveCommissioningData(data);
+    } catch (e) {
+      print('❌ Ошибка сохранения данных ПНР: $e');
+    }
+  }
 
   void toggleItem(String key, bool value) {
     _items[key] = value;
     notifyListeners();
+    _scheduleSave();
   }
 
   void setComment(String key, String comment) {
     _comments[key] = comment;
     notifyListeners();
+    _scheduleSave();
   }
 
   Map<String, dynamic> getData() {
     return {'items': Map.from(_items), 'comments': Map.from(_comments)};
   }
 
-  void resetAll() {
-    for (var key in _items.keys) {
+  Future<void> resetAll() async {
+    _saveTimer?.cancel();
+    for (final key in _items.keys) {
       _items[key] = false;
       _comments[key] = '';
     }
     notifyListeners();
+    await _saveData();
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    super.dispose();
   }
 }
 
@@ -286,8 +350,12 @@ class CommissioningProvider extends ChangeNotifier {
 === FILE: lib\providers\electrical_provider.dart ===
 
 import 'package:flutter/material.dart';
+import '../services/database_service.dart';
+import 'dart:async';
 
 class ElectricalProvider extends ChangeNotifier {
+  final DatabaseService _db = DatabaseService();
+
   final Map<String, bool> _items = {
     'Датчики подключены согласно схеме': false,
     'Реле подключены согласно схеме': false,
@@ -298,30 +366,94 @@ class ElectricalProvider extends ChangeNotifier {
   };
 
   final Map<String, String> _comments = {};
+  bool _isLoaded = false;
+
+  // Таймер для debounce-сохранения
+  Timer? _saveTimer;
 
   Map<String, bool> get items => _items;
   Map<String, String> get comments => _comments;
+  bool get isLoaded => _isLoaded;
+
+  ElectricalProvider() {
+    loadData();
+  }
+
+  Future<void> loadData() async {
+    try {
+      final data = await _db.getElectricalData();
+      if (data != null) {
+        final itemsData = data['items'] as Map<String, dynamic>?;
+        final commentsData = data['comments'] as Map<String, dynamic>?;
+
+        if (itemsData != null) {
+          for (final key in itemsData.keys) {
+            _items[key] = itemsData[key] as bool? ?? false;
+          }
+        }
+
+        if (commentsData != null) {
+          for (final key in commentsData.keys) {
+            _comments[key] = commentsData[key] as String? ?? '';
+          }
+        }
+
+        print('✅ Данные электрики загружены');
+      }
+      _isLoaded = true;
+      notifyListeners();
+    } catch (e) {
+      print('❌ Ошибка загрузки данных электрики: $e');
+      _isLoaded = true;
+      notifyListeners();
+    }
+  }
+
+  // Планируем сохранение через 500 мс после последнего изменения
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 500), _saveData);
+  }
+
+  Future<void> _saveData() async {
+    try {
+      final data = {'items': Map.from(_items), 'comments': Map.from(_comments)};
+      await _db.saveElectricalData(data);
+    } catch (e) {
+      print('❌ Ошибка сохранения данных электрики: $e');
+    }
+  }
 
   void toggleItem(String key, bool value) {
     _items[key] = value;
     notifyListeners();
+    _scheduleSave();
   }
 
   void setComment(String key, String comment) {
     _comments[key] = comment;
     notifyListeners();
+    _scheduleSave();
   }
 
   Map<String, dynamic> getData() {
     return {'items': Map.from(_items), 'comments': Map.from(_comments)};
   }
 
-  void resetAll() {
-    for (var key in _items.keys) {
+  Future<void> resetAll() async {
+    _saveTimer?.cancel();
+    for (final key in _items.keys) {
       _items[key] = false;
       _comments[key] = '';
     }
     notifyListeners();
+    await _saveData();
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    super.dispose();
   }
 }
 
@@ -351,23 +483,6 @@ class PhotoProvider extends ChangeNotifier {
   Future<void> addPhoto(File imageFile, String description) async {
     final record = await _photoService.savePhoto(imageFile, description);
     _photos.add(record);
-    notifyListeners();
-  }
-
-  // Добавление тестового фото (для демонстрации без камеры)
-  Future<void> addTestPhoto(String description) async {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final id = 'test_photo_$timestamp';
-
-    final photo = PhotoRecord(
-      id: id,
-      path: 'test_photo_$timestamp.jpg',
-      description: description,
-      createdAt: DateTime.now(),
-    );
-
-    await _db.savePhoto(photo);
-    _photos.add(photo);
     notifyListeners();
   }
 
@@ -905,36 +1020,72 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   ) {
     final items = provider.itemsByCategory[category] ?? [];
     final currentComment = items[index].comment;
-    final controller = TextEditingController(text: currentComment);
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Комментарий'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'Введите комментарий...',
-            border: OutlineInputBorder(),
-          ),
-          maxLines: 3,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () async {
-              await provider.addComment(category, index, controller.text);
-              if (context.mounted) {
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Сохранить'),
-          ),
-        ],
+      builder: (dialogContext) => _CommentDialog(
+        initialComment: currentComment,
+        onSave: (comment) async {
+          await provider.addComment(category, index, comment);
+        },
       ),
+    );
+  }
+}
+
+class _CommentDialog extends StatefulWidget {
+  final String? initialComment;
+  final Future<void> Function(String) onSave;
+
+  const _CommentDialog({required this.initialComment, required this.onSave});
+
+  @override
+  State<_CommentDialog> createState() => _CommentDialogState();
+}
+
+class _CommentDialogState extends State<_CommentDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialComment ?? '');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Комментарий'),
+      content: TextField(
+        controller: _controller,
+        decoration: const InputDecoration(
+          hintText: 'Введите комментарий...',
+          border: OutlineInputBorder(),
+        ),
+        maxLines: 3,
+        autofocus: true,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена'),
+        ),
+        TextButton(
+          onPressed: () async {
+            await widget.onSave(_controller.text);
+            if (context.mounted) {
+              Navigator.pop(context);
+            }
+          },
+          child: const Text('Сохранить'),
+        ),
+      ],
     );
   }
 }
@@ -959,17 +1110,26 @@ class _CommissioningScreenState extends State<CommissioningScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _initControllers();
+    });
+  }
+
+  void _initControllers() {
     final provider = Provider.of<CommissioningProvider>(context, listen: false);
-    for (var key in provider.items.keys) {
-      _commentControllers[key] = TextEditingController(
-        text: provider.comments[key] ?? '',
+    for (final key in provider.items.keys) {
+      _commentControllers.putIfAbsent(
+        key,
+        () => TextEditingController(text: provider.comments[key] ?? ''),
       );
     }
+    setState(() {});
   }
 
   @override
   void dispose() {
-    for (var controller in _commentControllers.values) {
+    for (final controller in _commentControllers.values) {
       controller.dispose();
     }
     super.dispose();
@@ -979,6 +1139,10 @@ class _CommissioningScreenState extends State<CommissioningScreen> {
   Widget build(BuildContext context) {
     return Consumer<CommissioningProvider>(
       builder: (context, provider, child) {
+        if (_commentControllers.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
         return Scaffold(
           body: ListView(
             padding: const EdgeInsets.all(16),
@@ -1008,6 +1172,7 @@ class _CommissioningScreenState extends State<CommissioningScreen> {
               const SizedBox(height: 16),
               ...provider.items.keys.map((title) {
                 final bool value = provider.items[title] ?? false;
+                final controller = _commentControllers[title]!;
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -1034,7 +1199,7 @@ class _CommissioningScreenState extends State<CommissioningScreen> {
                         Padding(
                           padding: const EdgeInsets.only(left: 40),
                           child: TextField(
-                            controller: _commentControllers[title],
+                            controller: controller,
                             onChanged: (text) {
                               provider.setComment(title, text);
                             },
@@ -1055,87 +1220,67 @@ class _CommissioningScreenState extends State<CommissioningScreen> {
                     ),
                   ),
                 );
-              }).toList(),
+              }),
               const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () {
-                  final completedCount = provider.items.values
-                      .where((v) => v == true)
-                      .length;
-                  final totalCount = provider.items.length;
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Сохранено! Выполнено $completedCount из $totalCount пунктов',
-                      ),
-                      backgroundColor: completedCount == totalCount
-                          ? Colors.green
-                          : Colors.blue,
-                      duration: const Duration(seconds: 3),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.save),
-                label: const Text('Сохранить результаты'),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 48),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Прогресс проверки ПНР',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Выполнено: ${provider.items.values.where((v) => v == true).length} из ${provider.items.length}',
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          Text(
-                            '${(provider.items.values.where((v) => v == true).length / provider.items.length * 100).round()}%',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value:
-                            provider.items.values
-                                .where((v) => v == true)
-                                .length /
-                            provider.items.length,
-                        backgroundColor: Colors.grey.shade200,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          Colors.blue,
-                        ),
-                        minHeight: 8,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              _ProgressCard(provider: provider),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _ProgressCard extends StatelessWidget {
+  final CommissioningProvider provider;
+
+  const _ProgressCard({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    final completed = provider.items.values.where((v) => v == true).length;
+    final total = provider.items.length;
+    final progress = total > 0 ? completed / total : 0.0;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Прогресс проверки ПНР',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Выполнено: $completed из $total',
+                  style: const TextStyle(fontSize: 14),
+                ),
+                Text(
+                  '${(progress * 100).round()}%',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: progress,
+              backgroundColor: Colors.grey.shade200,
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+              minHeight: 8,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1160,17 +1305,29 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
   @override
   void initState() {
     super.initState();
+    // Инициализируем контроллеры СРАЗУ для всех ключей провайдера.
+    // Провайдер создаётся в MultiProvider до первого build этого экрана,
+    // поэтому его items.keys уже доступны.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _initControllers();
+    });
+  }
+
+  void _initControllers() {
     final provider = Provider.of<ElectricalProvider>(context, listen: false);
-    for (var key in provider.items.keys) {
-      _commentControllers[key] = TextEditingController(
-        text: provider.comments[key] ?? '',
+    for (final key in provider.items.keys) {
+      _commentControllers.putIfAbsent(
+        key,
+        () => TextEditingController(text: provider.comments[key] ?? ''),
       );
     }
+    setState(() {});
   }
 
   @override
   void dispose() {
-    for (var controller in _commentControllers.values) {
+    for (final controller in _commentControllers.values) {
       controller.dispose();
     }
     super.dispose();
@@ -1180,6 +1337,11 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
   Widget build(BuildContext context) {
     return Consumer<ElectricalProvider>(
       builder: (context, provider, child) {
+        // Пока контроллеры не готовы — показываем загрузку.
+        if (_commentControllers.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
         return Scaffold(
           body: ListView(
             padding: const EdgeInsets.all(16),
@@ -1209,6 +1371,7 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
               const SizedBox(height: 16),
               ...provider.items.keys.map((title) {
                 final bool value = provider.items[title] ?? false;
+                final controller = _commentControllers[title]!;
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -1235,7 +1398,7 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
                         Padding(
                           padding: const EdgeInsets.only(left: 40),
                           child: TextField(
-                            controller: _commentControllers[title],
+                            controller: controller,
                             onChanged: (text) {
                               provider.setComment(title, text);
                             },
@@ -1256,87 +1419,67 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
                     ),
                   ),
                 );
-              }).toList(),
+              }),
               const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () {
-                  final completedCount = provider.items.values
-                      .where((v) => v == true)
-                      .length;
-                  final totalCount = provider.items.length;
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Сохранено! Выполнено $completedCount из $totalCount пунктов',
-                      ),
-                      backgroundColor: completedCount == totalCount
-                          ? Colors.green
-                          : Colors.blue,
-                      duration: const Duration(seconds: 3),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.save),
-                label: const Text('Сохранить результаты'),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 48),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Прогресс проверки электромонтажа',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Выполнено: ${provider.items.values.where((v) => v == true).length} из ${provider.items.length}',
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          Text(
-                            '${(provider.items.values.where((v) => v == true).length / provider.items.length * 100).round()}%',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value:
-                            provider.items.values
-                                .where((v) => v == true)
-                                .length /
-                            provider.items.length,
-                        backgroundColor: Colors.grey.shade200,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          Colors.blue,
-                        ),
-                        minHeight: 8,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              _ProgressCard(provider: provider),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _ProgressCard extends StatelessWidget {
+  final ElectricalProvider provider;
+
+  const _ProgressCard({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    final completed = provider.items.values.where((v) => v == true).length;
+    final total = provider.items.length;
+    final progress = total > 0 ? completed / total : 0.0;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Прогресс проверки электромонтажа',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Выполнено: $completed из $total',
+                  style: const TextStyle(fontSize: 14),
+                ),
+                Text(
+                  '${(progress * 100).round()}%',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: progress,
+              backgroundColor: Colors.grey.shade200,
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+              minHeight: 8,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1348,11 +1491,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/checklist_provider.dart';
 import '../providers/photo_provider.dart';
-import 'project_settings_screen.dart';
+import '../providers/report_provider.dart';
+import '../providers/electrical_provider.dart';
+import '../providers/commissioning_provider.dart';
 import 'categories_screen.dart';
 import 'electrical_screen.dart';
 import 'commissioning_screen.dart';
-import 'report_screen.dart'; // Убедитесь, что этот импорт есть
+import 'report_screen.dart';
+import 'project_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -1368,7 +1514,7 @@ class _HomeScreenState extends State<HomeScreen> {
     const CategoriesScreen(),
     const ElectricalScreen(),
     const CommissioningScreen(),
-    const ReportScreen(), // <-- Здесь ошибка, если ReportScreen не найден
+    const ReportScreen(),
   ];
 
   final List<String> _titles = [
@@ -1452,8 +1598,16 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Сбросить данные?'),
-        content: const Text('Все данные проверки будут сброшены. Продолжить?'),
+        title: const Text('Сбросить все данные?'),
+        content: const Text(
+          'Будут сброшены:\n'
+          '• Все отметки в чек-листе\n'
+          '• Все комментарии монтажа\n'
+          '• Все данные электромонтажа\n'
+          '• Все данные ПНР\n'
+          '• Все фотографии\n\n'
+          'Продолжить?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -1462,24 +1616,39 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              await Provider.of<ChecklistProvider>(
-                context,
-                listen: false,
-              ).resetAll();
+              await _resetAllData();
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Данные сброшены'),
+                    content: Text('✅ Все данные сброшены'),
                     backgroundColor: Colors.green,
                   ),
                 );
               }
             },
-            child: const Text('Сбросить'),
+            child: const Text('Сбросить', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
+  }
+
+  // ===== МЕТОД ПОЛНОГО СБРОСА =====
+  Future<void> _resetAllData() async {
+    // 1. Сброс чек-листа монтажа
+    await Provider.of<ChecklistProvider>(context, listen: false).resetAll();
+
+    // 2. Сброс данных электромонтажа
+    await Provider.of<ElectricalProvider>(context, listen: false).resetAll();
+
+    // 3. Сброс данных ПНР
+    await Provider.of<CommissioningProvider>(context, listen: false).resetAll();
+
+    // 4. Сброс данных отчета
+    Provider.of<ReportProvider>(context, listen: false).resetReport();
+
+    // 5. Перезагрузка фото (они удаляются отдельно через UI)
+    await Provider.of<PhotoProvider>(context, listen: false).loadPhotos();
   }
 }
 
@@ -1542,12 +1711,7 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
         ),
         // Оборачиваем в SingleChildScrollView для прокрутки при клавиатуре
         child: SingleChildScrollView(
-          padding: EdgeInsets.only(
-            left: 24,
-            right: 24,
-            top: 24,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-          ),
+          padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1943,12 +2107,19 @@ class _ReportScreenState extends State<ReportScreen> {
                             await reportProvider.savePdf(
                               projectName: projectName,
                             );
-                            final path = reportProvider.pdfFile?.path ?? '';
+                            // final path = reportProvider.pdfFile?.path ?? '';
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('✅ PDF сохранен: $path'),
+                                content: Text(
+                                  '✅ PDF сохранен:\n${reportProvider.pdfFile?.path}',
+                                ),
                                 backgroundColor: Colors.green,
                                 duration: const Duration(seconds: 5),
+                                action: SnackBarAction(
+                                  label: 'OK',
+                                  textColor: Colors.white,
+                                  onPressed: () {},
+                                ),
                               ),
                             );
                           } catch (e) {
@@ -2194,44 +2365,45 @@ class _ReportScreenState extends State<ReportScreen> {
   }
 
   // ===== ДИАЛОГ РЕДАКТИРОВАНИЯ НАЗВАНИЯ ПРОЕКТА =====
+  // В report_screen.dart замените метод целиком:
+
   void _showEditProjectNameDialog(
     BuildContext context,
     ProjectProvider provider,
   ) {
-    final controller = TextEditingController(text: provider.projectName);
+    String newName = provider.projectName;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Название проекта'),
-        content: TextField(
-          controller: controller,
+        content: TextFormField(
+          initialValue: provider.projectName,
           decoration: const InputDecoration(
             labelText: 'Название теплового пункта',
             hintText: 'Например: ИТП №1',
             border: OutlineInputBorder(),
           ),
           autofocus: true,
+          onChanged: (value) => newName = value,
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Отмена'),
           ),
           TextButton(
             onPressed: () {
-              if (controller.text.trim().isNotEmpty) {
-                provider.setProjectName(controller.text.trim());
-                Navigator.pop(context);
+              if (newName.trim().isNotEmpty) {
+                provider.setProjectName(newName.trim());
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(
-                      '✅ Название сохранено: ${controller.text.trim()}',
-                    ),
+                    content: Text('✅ Название сохранено: ${newName.trim()}'),
                     backgroundColor: Colors.green,
                   ),
                 );
               }
+              Navigator.pop(dialogContext);
             },
             child: const Text('Сохранить'),
           ),
@@ -2627,6 +2799,9 @@ class DatabaseService {
 
   static const String _checklistKey = 'checklist_items';
   static const String _photosKey = 'photos';
+  static const String _electricalKey = 'electrical_data';
+  static const String _commissioningKey = 'commissioning_data';
+  static const String _checklistVersionKey = 'checklist_version';
 
   late SharedPreferences _prefs;
   bool _isInitialized = false;
@@ -2636,17 +2811,15 @@ class DatabaseService {
     _prefs = await SharedPreferences.getInstance();
     _isInitialized = true;
 
-    // Проверяем версию данных
-    final currentVersion = _prefs.getString('checklist_version') ?? '0';
-    final newVersion = '2.0'; // Новая версия с полным списком
+    final currentVersion = _prefs.getString(_checklistVersionKey) ?? '0';
+    final newVersion = '2.0';
 
-    // Если версия не совпадает - пересоздаем данные
     if (currentVersion != newVersion) {
       print(
         '🔄 Обновление данных чек-листа с версии $currentVersion до $newVersion',
       );
       await _initChecklistData(force: true);
-      await _prefs.setString('checklist_version', newVersion);
+      await _prefs.setString(_checklistVersionKey, newVersion);
     } else if (!_prefs.containsKey(_checklistKey)) {
       await _initChecklistData();
     }
@@ -2654,17 +2827,17 @@ class DatabaseService {
 
   Future<void> _initChecklistData({bool force = false}) async {
     if (force) {
-      // Удаляем старые данные
       await _prefs.remove(_checklistKey);
     }
 
-    // Получаем данные из Constants
     final items = Constants.checklistData;
     final itemsJson = items.map((item) => item.toMap()).toList();
     await _prefs.setString(_checklistKey, jsonEncode(itemsJson));
 
     print('✅ Инициализировано ${items.length} пунктов чек-листа');
   }
+
+  // ========== ЧЕКЛИСТ ==========
 
   Future<Map<String, List<CheckItem>>> getChecklistItems() async {
     if (!_isInitialized) await initDatabase();
@@ -2708,6 +2881,8 @@ class DatabaseService {
     await _prefs.setString(_checklistKey, jsonEncode(updatedList));
   }
 
+  // ========== ФОТО ==========
+
   Future<void> savePhoto(PhotoRecord photo) async {
     if (!_isInitialized) await initDatabase();
 
@@ -2750,250 +2925,50 @@ class DatabaseService {
     await _prefs.setString(_photosKey, jsonEncode(updatedList));
   }
 
+  // ========== ЭЛЕКТРИКА (НОВОЕ!) ==========
+
+  Future<void> saveElectricalData(Map<String, dynamic> data) async {
+    if (!_isInitialized) await initDatabase();
+    await _prefs.setString(_electricalKey, jsonEncode(data));
+    print('💾 Данные электрики сохранены');
+  }
+
+  Future<Map<String, dynamic>?> getElectricalData() async {
+    if (!_isInitialized) await initDatabase();
+
+    final String? dataJson = _prefs.getString(_electricalKey);
+    if (dataJson == null) return null;
+
+    return jsonDecode(dataJson) as Map<String, dynamic>;
+  }
+
+  // ========== ПНР (НОВОЕ!) ==========
+
+  Future<void> saveCommissioningData(Map<String, dynamic> data) async {
+    if (!_isInitialized) await initDatabase();
+    await _prefs.setString(_commissioningKey, jsonEncode(data));
+    print('💾 Данные ПНР сохранены');
+  }
+
+  Future<Map<String, dynamic>?> getCommissioningData() async {
+    if (!_isInitialized) await initDatabase();
+
+    final String? dataJson = _prefs.getString(_commissioningKey);
+    if (dataJson == null) return null;
+
+    return jsonDecode(dataJson) as Map<String, dynamic>;
+  }
+
+  // ========== СБРОС ==========
+
   Future<void> resetAllData() async {
     if (!_isInitialized) await initDatabase();
     await _prefs.remove(_checklistKey);
     await _prefs.remove(_photosKey);
-    await _prefs.remove('checklist_version');
+    await _prefs.remove(_electricalKey);
+    await _prefs.remove(_commissioningKey);
+    await _prefs.remove(_checklistVersionKey);
     await _initChecklistData();
-  }
-}
-
-
-=== FILE: lib\services\docx_service.dart ===
-
-import 'dart:io';
-import 'dart:convert';
-import 'package:intl/intl.dart';
-import '../models/report.dart';
-
-class DocxService {
-  // Генерация RTF файла (открывается в Word)
-  Future<File> generateRtf(ReportData report) async {
-    final content = _generateRtfContent(report);
-
-    // Используем системную временную директорию
-    final tempDir = Directory.systemTemp;
-    final file = File('${tempDir.path}/report_${report.id}.rtf');
-    await file.writeAsString(content, encoding: utf8);
-
-    return file;
-  }
-
-  String _generateRtfContent(ReportData report) {
-    final buffer = StringBuffer();
-    final now = DateTime.now();
-    final dateFormat = DateFormat('dd.MM.yyyy');
-    final timeFormat = DateFormat('HH:mm');
-    final fullFormat = DateFormat('dd.MM.yyyy HH:mm');
-
-    // RTF заголовок
-    buffer.writeln(r'{\rtf1\ansi\deff0');
-    buffer.writeln(r'{\fonttbl{\f0\fnil\fcharset204 Arial;}}');
-    buffer.writeln(r'\viewkind4\uc1\pard\lang1049\f0\fs24');
-
-    // Заголовок
-    buffer.writeln(r'\pard\qc\b\fs36 АКТ ПРОВЕРКИ\b0\fs24\par');
-    buffer.writeln(r'\pard\qc\b\fs32 БЛОЧНОГО ТЕПЛОВОГО ПУНКТА\b0\fs24\par');
-    buffer.writeln(r'\par');
-    buffer.writeln('\\pard\\qc Дата проверки: ${dateFormat.format(now)}\\par');
-    buffer.writeln('\\pard\\qc Время: ${timeFormat.format(now)}\\par');
-    buffer.writeln(r'\par');
-    buffer.writeln(r'\pard\qc \b1. ПРОВЕРКА ПОСЛЕ МОНТАЖА\b0\par');
-    buffer.writeln(r'\par');
-
-    // Чеклист
-    final checklist =
-        report.data['checklistItems']
-            as Map<String, List<Map<String, dynamic>>>?;
-    if (checklist != null) {
-      int totalChecked = 0;
-      int totalItems = 0;
-
-      for (var entry in checklist.entries) {
-        buffer.writeln('\\pard\\b ${entry.key}\\b0\\par');
-
-        for (var item in entry.value) {
-          final isChecked = item['isChecked'] ?? false;
-          final title = item['title'] ?? '';
-          final comment = item['comment'] ?? '';
-          totalChecked += isChecked ? 1 : 0;
-          totalItems += 1;
-
-          final status = isChecked ? '[+]' : '[-]';
-          buffer.writeln('\\pard\\fs20 $status $title\\par');
-
-          if (comment.isNotEmpty) {
-            buffer.writeln('\\pard\\fs18\\i Комментарий: $comment\\i0\\par');
-          }
-        }
-        buffer.writeln(r'\par');
-      }
-
-      buffer.writeln(
-        '\\pard\\b Итого: $totalChecked из $totalItems проверено\\b0\\par',
-      );
-    }
-
-    buffer.writeln(r'\par');
-    buffer.writeln(r'\pard\qc \b2. ПРОВЕРКА ЭЛЕКТРОМОНТАЖА\b0\par');
-    buffer.writeln(r'\par');
-
-    // Электромонтаж
-    final electrical = report.data['electricalData'] as Map<String, dynamic>?;
-    if (electrical != null) {
-      final sensors = electrical['sensors'] ?? 'Не проверено';
-      final relays = electrical['relays'] ?? 'Не проверено';
-      final pumps = electrical['pumps'] ?? 'Не проверено';
-      final actuators = electrical['actuators'] ?? 'Не проверено';
-      final cableMarking = electrical['cableMarking'] ?? 'Не проверено';
-      final cableTypes = electrical['cableTypes'] ?? 'Не проверено';
-
-      buffer.writeln(
-        '\\pard • Соответствие подключения датчиков: $sensors\\par',
-      );
-      buffer.writeln('\\pard • Соответствие подключения реле: $relays\\par');
-      buffer.writeln('\\pard • Соответствие подключения насосов: $pumps\\par');
-      buffer.writeln(
-        '\\pard • Соответствие подключения приводов: $actuators\\par',
-      );
-      buffer.writeln('\\pard • Маркировка кабелей: $cableMarking\\par');
-      buffer.writeln('\\pard • Соответствие типов кабелей: $cableTypes\\par');
-    }
-
-    buffer.writeln(r'\par');
-    buffer.writeln(r'\pard\qc \b3. РЕЗУЛЬТАТЫ ПНР\b0\par');
-    buffer.writeln(r'\par');
-
-    // ПНР
-    final commissioning =
-        report.data['commissioningData'] as Map<String, dynamic>?;
-    if (commissioning != null) {
-      final controllerProgram =
-          commissioning['controllerProgram'] ?? 'Не проверено';
-      final panelProgram = commissioning['panelProgram'] ?? 'Не проверено';
-      final cabinetAssembly =
-          commissioning['cabinetAssembly'] ?? 'Не проверено';
-      final electricalScheme =
-          commissioning['electricalScheme'] ?? 'Не проверено';
-      final componentsQuality =
-          commissioning['componentsQuality'] ?? 'Не проверено';
-      final regulationQuality =
-          commissioning['regulationQuality'] ?? 'Не проверено';
-
-      buffer.writeln(
-        '\\pard • Работоспособность программы в контроллере: $controllerProgram\\par',
-      );
-      buffer.writeln(
-        '\\pard • Работоспособность программы в панели: $panelProgram\\par',
-      );
-      buffer.writeln(
-        '\\pard • Правильность сборки шкафа: $cabinetAssembly\\par',
-      );
-      buffer.writeln(
-        '\\pard • Правильность электросхемы: $electricalScheme\\par',
-      );
-      buffer.writeln(
-        '\\pard • Отсутствие брака в компонентах: $componentsQuality\\par',
-      );
-      buffer.writeln(
-        '\\pard • Качество регулирования: $regulationQuality\\par',
-      );
-    }
-
-    buffer.writeln(r'\par');
-    buffer.writeln(r'\pard\qc \b4. ФОТОМАТЕРИАЛЫ\b0\par');
-    buffer.writeln(r'\par');
-
-    final photos = report.data['photoPaths'] as List<String>?;
-    if (photos == null || photos.isEmpty) {
-      buffer.writeln(r'\pard Фотографии не прикреплены\par');
-    } else {
-      buffer.writeln('\\pard Добавлено фотографий: ${photos.length}\\par');
-      for (var i = 0; i < photos.length; i++) {
-        final fileName = photos[i].split('/').last;
-        buffer.writeln('\\pard ${i + 1}. $fileName\\par');
-      }
-    }
-
-    buffer.writeln(r'\par');
-    buffer.writeln(r'\pard\qc\b КОНЕЦ ОТЧЕТА\b0\par');
-    buffer.writeln(
-      '\\pard\\qc\\fs18 Отчет сгенерирован автоматически ${fullFormat.format(now)}\\par',
-    );
-
-    // Закрытие RTF
-    buffer.writeln('}');
-
-    return buffer.toString();
-  }
-}
-
-
-=== FILE: lib\services\pdf_service.dart ===
-
-import 'dart:io';
-import 'dart:convert';
-import 'package:intl/intl.dart';
-import '../models/report.dart';
-
-class PdfService {
-  // Генерация PDF файла (текстовый формат, открывается как PDF)
-  Future<File> generatePdf(ReportData report) async {
-    final content = _generatePdfContent(report);
-
-    // Используем системную временную директорию
-    final tempDir = Directory.systemTemp;
-    final file = File('${tempDir.path}/report_${report.id}.pdf');
-    await file.writeAsString(content, encoding: utf8);
-
-    return file;
-  }
-
-  String _generatePdfContent(ReportData report) {
-    final buffer = StringBuffer();
-    final now = DateTime.now();
-    final dateFormat = DateFormat('dd.MM.yyyy HH:mm');
-
-    buffer.writeln('%PDF-1.4');
-    buffer.writeln('1 0 obj');
-    buffer.writeln('<< /Type /Catalog /Pages 2 0 R >>');
-    buffer.writeln('endobj');
-    buffer.writeln('2 0 obj');
-    buffer.writeln('<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-    buffer.writeln('endobj');
-    buffer.writeln('3 0 obj');
-    buffer.writeln(
-      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>',
-    );
-    buffer.writeln('endobj');
-    buffer.writeln('4 0 obj');
-    buffer.writeln('<< /Length 1000 >>');
-    buffer.writeln('stream');
-    buffer.writeln('BT /F1 24 Tf 100 700 Td (АКТ ПРОВЕРКИ) Tj ET');
-    buffer.writeln('BT /F1 18 Tf 80 670 Td (БЛОЧНОГО ТЕПЛОВОГО ПУНКТА) Tj ET');
-    buffer.writeln(
-      'BT /F1 12 Tf 50 630 Td (Дата проверки: ${dateFormat.format(now)}) Tj ET',
-    );
-    buffer.writeln(
-      'BT /F1 12 Tf 50 600 Td (==================================================) Tj ET',
-    );
-    buffer.writeln('endstream');
-    buffer.writeln('endobj');
-    buffer.writeln('xref');
-    buffer.writeln('0 5');
-    buffer.writeln('0000000000 65535 f');
-    buffer.writeln('0000000010 00000 n');
-    buffer.writeln('0000000050 00000 n');
-    buffer.writeln('0000000100 00000 n');
-    buffer.writeln('0000000200 00000 n');
-    buffer.writeln('trailer');
-    buffer.writeln('<< /Size 5 /Root 1 0 R >>');
-    buffer.writeln('startxref');
-    buffer.writeln('500');
-    buffer.writeln('%%EOF');
-
-    return buffer.toString();
   }
 }
 
@@ -3008,24 +2983,6 @@ import 'database_service.dart';
 class PhotoService {
   final ImagePicker _picker = ImagePicker();
   final DatabaseService _db = DatabaseService();
-
-  Future<File?> takePhoto() async {
-    try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 1920,
-        maxHeight: 1080,
-        imageQuality: 85,
-      );
-
-      if (image != null) {
-        return File(image.path);
-      }
-    } catch (e) {
-      print('Ошибка при съемке: $e');
-    }
-    return null;
-  }
 
   Future<File?> pickFromGallery() async {
     try {
@@ -3045,60 +3002,83 @@ class PhotoService {
     return null;
   }
 
-  // ========== ГЛАВНОЕ: имя файла = только название пользователя ==========
+  // ========== СОХРАНЕНИЕ С FALLBACK ==========
   Future<PhotoRecord> savePhoto(File imageFile, String description) async {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final id = 'photo_$timestamp';
 
-    // Формируем имя файла из описания
     String safeName = _sanitizeFileName(description);
-
-    // Если описание пустое
     if (safeName.isEmpty) {
       safeName = 'photo';
     }
 
-    // Определяем директорию для сохранения
-    String appDirPath;
-    try {
-      final picturesDir = Directory('/storage/emulated/0/Pictures');
-      if (await picturesDir.exists()) {
-        appDirPath = '${picturesDir.path}/thermal_checkup';
-      } else {
-        final downloadsDir = Directory('/storage/emulated/0/Download');
-        if (await downloadsDir.exists()) {
-          appDirPath = '${downloadsDir.path}/thermal_checkup';
-        } else {
-          appDirPath = '/data/user/0/com.example.thermal_checkup/cache';
+    // ✅ FALLBACK: список путей по приоритету
+    final List<String> possibleDirs = [
+      '/storage/emulated/0/Pictures/thermal_checkup',
+      '/storage/emulated/0/Download/thermal_checkup',
+      '/storage/emulated/0/Documents/thermal_checkup',
+      '/storage/emulated/0/Android/data/com.example.thermal_checkup/files',
+      Directory.systemTemp.path,
+    ];
+
+    String? savedPath;
+    final List<String> triedPaths = [];
+
+    for (final dirPath in possibleDirs) {
+      try {
+        final dir = Directory(dirPath);
+        triedPaths.add(dirPath);
+
+        if (!await dir.exists()) {
+          try {
+            await dir.create(recursive: true);
+          } catch (e) {
+            print('⚠️ Не могу создать $dirPath: $e');
+            continue;
+          }
         }
-      }
 
-      final appDir = Directory(appDirPath);
-      if (!await appDir.exists()) {
-        await appDir.create(recursive: true);
+        // Умная нумерация для уникальности
+        String fileName = '$safeName.jpg';
+        String fullPath = '$dirPath/$fileName';
+        int counter = 1;
+
+        while (await File(fullPath).exists()) {
+          fileName = '${safeName}_$counter.jpg';
+          fullPath = '$dirPath/$fileName';
+          counter++;
+          if (counter > 1000) {
+            // Защита от бесконечного цикла
+            break;
+          }
+        }
+
+        // Копируем файл
+        await imageFile.copy(fullPath);
+
+        // Проверяем что файл реально скопировался
+        final copiedFile = File(fullPath);
+        if (await copiedFile.exists()) {
+          final size = await copiedFile.length();
+          if (size > 0) {
+            savedPath = fullPath;
+            print('✅ Фото сохранено: $fullPath (${(size / 1024).round()} KB)');
+            break;
+          } else {
+            print('⚠️ Файл создан, но пустой: $fullPath');
+          }
+        }
+      } catch (e) {
+        print('⚠️ Ошибка при сохранении в $dirPath: $e');
+        continue;
       }
-    } catch (e) {
-      appDirPath = '/data/user/0/com.example.thermal_checkup/cache';
     }
 
-    // ===== УМНАЯ НУМЕРАЦИЯ: если файл существует, добавляем (1), (2) и т.д. =====
-    String fileName = '$safeName.jpg';
-    String savedPath = '$appDirPath/$fileName';
-    int counter = 1;
-
-    while (await File(savedPath).exists()) {
-      fileName = '$safeName($counter).jpg';
-      savedPath = '$appDirPath/$fileName';
-      counter++;
-    }
-
-    // Копируем файл
-    try {
-      await imageFile.copy(savedPath);
-      print('✅ Фото сохранено: $savedPath');
-    } catch (e) {
+    // Fallback: если нигде не сохранилось — используем оригинальный путь
+    if (savedPath == null) {
       savedPath = imageFile.path;
-      print('⚠️ Не удалось скопировать файл: $e');
+      print('⚠️ Все пути недоступны. Использую оригинальный путь: $savedPath');
+      print('⚠️ Проверенные пути: ${triedPaths.join(", ")}');
     }
 
     final photo = PhotoRecord(
@@ -3109,19 +3089,15 @@ class PhotoService {
     );
 
     await _db.savePhoto(photo);
-
     return photo;
   }
 
   // Очищаем имя файла от недопустимых символов
   String _sanitizeFileName(String name) {
     return name
-        .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_') // Запрещенные символы
-        .replaceAll(RegExp(r'\s+'), '_') // Пробелы на _
-        .replaceAll(
-          RegExp(r'[^\w\u0400-\u04FF\-\.\(\)]'),
-          '',
-        ) // Оставляем буквы, цифры, дефис, точку, кириллицу, скобки
+        .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+        .replaceAll(RegExp(r'\s+'), '_')
+        .replaceAll(RegExp(r'[^\w\u0400-\u04FF\-\.\(\)]'), '')
         .trim();
   }
 
@@ -3224,6 +3200,7 @@ class ReportService {
     final timeFormat = DateFormat('HH:mm');
     final fullFormat = DateFormat('dd.MM.yyyy HH:mm');
 
+    buffer.writeln('=' * 50);
     buffer.writeln('АКТ ПРОВЕРКИ БЛОЧНОГО ТЕПЛОВОГО ПУНКТА');
     buffer.writeln('=' * 50);
     buffer.writeln();
@@ -3245,7 +3222,7 @@ class ReportService {
 
       for (var entry in checklist.entries) {
         buffer.writeln();
-        buffer.writeln('  ${entry.key}:');
+        buffer.writeln('  >> ${entry.key}:');
         for (var item in entry.value) {
           final isChecked = item['isChecked'] ?? false;
           final title = item['title'] ?? '';
@@ -3267,151 +3244,116 @@ class ReportService {
 
     // 2. Проверка электромонтажа
     buffer.writeln();
-    buffer.writeln('-' * 60);
+    buffer.writeln('-' * 50);
     buffer.writeln('2. ПРОВЕРКА ЭЛЕКТРОМОНТАЖА');
     buffer.writeln('-' * 40);
 
     final electrical = data['electricalData'] as Map<String, dynamic>?;
     final electricalComments =
-        electrical?['comments'] as Map<String, String>? ?? {};
+        electrical?['comments'] as Map<String, dynamic>? ?? {};
 
     if (electrical != null) {
-      buffer.writeln(
-        '  • Соответствие подключения датчиков: ${electrical['sensors'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Датчики подключены согласно схеме']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${electricalComments['Датчики подключены согласно схеме']}',
-        );
-      }
+      final electricalItems = [
+        {
+          'key': 'sensors',
+          'commentKey': 'Датчики подключены согласно схеме',
+          'label': 'Соответствие подключения датчиков',
+        },
+        {
+          'key': 'relays',
+          'commentKey': 'Реле подключены согласно схеме',
+          'label': 'Соответствие подключения реле',
+        },
+        {
+          'key': 'pumps',
+          'commentKey': 'Насосы подключены согласно схеме',
+          'label': 'Соответствие подключения насосов',
+        },
+        {
+          'key': 'actuators',
+          'commentKey': 'Привода подключены согласно схеме',
+          'label': 'Соответствие подключения приводов',
+        },
+        {
+          'key': 'cableMarking',
+          'commentKey': 'Кабеля промаркированы согласно схеме',
+          'label': 'Маркировка кабелей',
+        },
+        {
+          'key': 'cableTypes',
+          'commentKey': 'Тип кабелей соответствует схеме',
+          'label': 'Соответствие типов кабелей',
+        },
+      ];
 
-      buffer.writeln(
-        '  • Соответствие подключения реле: ${electrical['relays'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Реле подключены согласно схеме']?.isNotEmpty ??
-          false) {
+      for (var item in electricalItems) {
         buffer.writeln(
-          '      Комментарий: ${electricalComments['Реле подключены согласно схеме']}',
+          '  • ${item['label']}: ${electrical[item['key']] ?? 'Не проверено'}',
         );
-      }
-
-      buffer.writeln(
-        '  • Соответствие подключения насосов: ${electrical['pumps'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Насосы подключены согласно схеме']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${electricalComments['Насосы подключены согласно схеме']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Соответствие подключения приводов: ${electrical['actuators'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Привода подключены согласно схеме']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${electricalComments['Привода подключены согласно схеме']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Маркировка кабелей: ${electrical['cableMarking'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Кабеля промаркированы согласно схеме']
-              ?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${electricalComments['Кабеля промаркированы согласно схеме']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Соответствие типов кабелей: ${electrical['cableTypes'] ?? 'Не проверено'}',
-      );
-      if (electricalComments['Тип кабелей соответствует схеме']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${electricalComments['Тип кабелей соответствует схеме']}',
-        );
+        final comment =
+            electricalComments[item['commentKey']]?.toString() ?? '';
+        if (comment.isNotEmpty) {
+          buffer.writeln('      Комментарий: $comment');
+        }
       }
     }
 
     // 3. Результаты ПНР
     buffer.writeln();
-    buffer.writeln('-' * 60);
+    buffer.writeln('-' * 50);
     buffer.writeln('3. РЕЗУЛЬТАТЫ ПНР');
     buffer.writeln('-' * 40);
 
     final commissioning = data['commissioningData'] as Map<String, dynamic>?;
     final commissioningComments =
-        commissioning?['comments'] as Map<String, String>? ?? {};
+        commissioning?['comments'] as Map<String, dynamic>? ?? {};
 
     if (commissioning != null) {
-      buffer.writeln(
-        '  • Работоспособность программы в контроллере: ${commissioning['controllerProgram'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Работоспособность программы в контроллере']
-              ?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${commissioningComments['Работоспособность программы в контроллере']}',
-        );
-      }
+      final commissioningItems = [
+        {
+          'key': 'controllerProgram',
+          'commentKey': 'Работоспособность программы в контроллере',
+          'label': 'Работоспособность программы в контроллере',
+        },
+        {
+          'key': 'panelProgram',
+          'commentKey': 'Работоспособность программы в панели',
+          'label': 'Работоспособность программы в панели',
+        },
+        {
+          'key': 'cabinetAssembly',
+          'commentKey': 'Правильность сборки шкафа согласно схемы',
+          'label': 'Правильность сборки шкафа',
+        },
+        {
+          'key': 'electricalScheme',
+          'commentKey': 'Правильность электросхемы',
+          'label': 'Правильность электросхемы',
+        },
+        {
+          'key': 'componentsQuality',
+          'commentKey': 'Отсутствие брака в компонентах',
+          'label': 'Отсутствие брака в компонентах',
+        },
+        {
+          'key': 'regulationQuality',
+          'commentKey': 'Качество регулирования',
+          'label': 'Качество регулирования',
+        },
+      ];
 
-      buffer.writeln(
-        '  • Работоспособность программы в панели: ${commissioning['panelProgram'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Работоспособность программы в панели']
-              ?.isNotEmpty ??
-          false) {
+      for (var item in commissioningItems) {
         buffer.writeln(
-          '      Комментарий: ${commissioningComments['Работоспособность программы в панели']}',
+          '  • ${item['label']}: ${commissioning[item['key']] ?? 'Не проверено'}',
         );
-      }
-
-      buffer.writeln(
-        '  • Правильность сборки шкафа: ${commissioning['cabinetAssembly'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Правильность сборки шкафа согласно схемы']
-              ?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${commissioningComments['Правильность сборки шкафа согласно схемы']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Правильность электросхемы: ${commissioning['electricalScheme'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Правильность электросхемы']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${commissioningComments['Правильность электросхемы']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Отсутствие брака в компонентах: ${commissioning['componentsQuality'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Отсутствие брака в компонентах']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${commissioningComments['Отсутствие брака в компонентах']}',
-        );
-      }
-
-      buffer.writeln(
-        '  • Качество регулирования: ${commissioning['regulationQuality'] ?? 'Не проверено'}',
-      );
-      if (commissioningComments['Качество регулирования']?.isNotEmpty ??
-          false) {
-        buffer.writeln(
-          '      Комментарий: ${commissioningComments['Качество регулирования']}',
-        );
+        final comment =
+            commissioningComments[item['commentKey']]?.toString() ?? '';
+        if (comment.isNotEmpty) {
+          buffer.writeln('      Комментарий: $comment');
+        }
       }
     }
+
     // 4. Фотоматериалы
     buffer.writeln();
     buffer.writeln('-' * 50);
@@ -3460,6 +3402,7 @@ class ReportService {
     }
   }
 
+  // ========== СОХРАНЕНИЕ С FALLBACK ==========
   Future<File> generateAndSavePdf({
     required String projectName,
     required DateTime reportTime,
@@ -3472,26 +3415,21 @@ class ReportService {
 
     final pdf = pw.Document();
 
-    // Очищаем текст - убираем все лишние символы
     String cleanText = reportText;
-    // Убираем эмодзи и спецсимволы
     cleanText = cleanText.replaceAll('✅', '[+]');
     cleanText = cleanText.replaceAll('❌', '[-]');
-    cleanText = cleanText.replaceAll('📅', '');
-    cleanText = cleanText.replaceAll('⏰', '');
-    cleanText = cleanText.replaceAll('📂', '');
-    cleanText = cleanText.replaceAll('💬', '');
-    cleanText = cleanText.replaceAll('📊', '');
+    cleanText = cleanText.replaceAll('📅', 'Дата:');
+    cleanText = cleanText.replaceAll('⏰', 'Время:');
+    cleanText = cleanText.replaceAll('📂', '>>');
+    cleanText = cleanText.replaceAll('💬', 'Комм:');
+    cleanText = cleanText.replaceAll('📊', 'Итого:');
     cleanText = cleanText.replaceAll('⚡', '•');
     cleanText = cleanText.replaceAll('🔧', '•');
-    cleanText = cleanText.replaceAll('📷', '');
+    cleanText = cleanText.replaceAll('📷', 'Фото:');
 
     final lines = cleanText.split('\n');
+    final pages = _splitTextIntoPages(lines);
 
-    // Разбиваем текст на страницы
-    final pages = _splitTextIntoPages(lines, font);
-
-    // Добавляем каждую страницу
     for (int pageIndex = 0; pageIndex < pages.length; pageIndex++) {
       final pageLines = pages[pageIndex];
       final isFirstPage = pageIndex == 0;
@@ -3515,42 +3453,90 @@ class ReportService {
     }
 
     final dateStr = DateFormat('yyyy-MM-dd_HH-mm').format(reportTime);
-    final filename = 'Отчет_ИТП_$dateStr.pdf';
 
-    // Сохраняем в Downloads
-    String savePath;
-    try {
-      final downloadsDir = Directory('/storage/emulated/0/Download');
-      if (await downloadsDir.exists()) {
-        savePath = '${downloadsDir.path}/$filename';
-      } else {
-        final documentsDir = Directory('/storage/emulated/0/Documents');
-        if (await documentsDir.exists()) {
-          savePath = '${documentsDir.path}/$filename';
-        } else {
-          savePath = '/storage/emulated/0/$filename';
+    // Очищаем имя проекта от недопустимых символов
+    String safeProjectName = projectName
+        .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+        .replaceAll(RegExp(r'\s+'), '_')
+        .trim();
+    if (safeProjectName.isEmpty) safeProjectName = 'ИТП';
+
+    final filename = 'Отчет_${safeProjectName}_$dateStr.pdf';
+
+    // ✅ FALLBACK: список путей по приоритету
+    final List<String> possibleDirs = [
+      '/storage/emulated/0/Download',
+      '/storage/emulated/0/Documents',
+      '/storage/emulated/0/Android/data/com.example.thermal_checkup/files',
+      Directory.systemTemp.path,
+    ];
+
+    final Uint8List pdfBytes = await pdf.save();
+    File? savedFile;
+    String? lastError;
+    final List<String> triedPaths = [];
+
+    for (final dirPath in possibleDirs) {
+      try {
+        final dir = Directory(dirPath);
+        triedPaths.add(dirPath);
+
+        if (!await dir.exists()) {
+          try {
+            await dir.create(recursive: true);
+          } catch (e) {
+            lastError = 'Не могу создать папку $dirPath: $e';
+            print('⚠️ $lastError');
+            continue;
+          }
         }
+
+        final filePath = '$dirPath/$filename';
+        final file = File(filePath);
+
+        // Записываем файл
+        await file.writeAsBytes(pdfBytes);
+
+        // Проверяем что файл реально записался
+        if (await file.exists()) {
+          final size = await file.length();
+          if (size > 0) {
+            savedFile = file;
+            print('✅ PDF сохранен: $filePath (${(size / 1024).round()} KB)');
+            break;
+          } else {
+            lastError = 'Файл создан, но пустой: $filePath';
+            print('⚠️ $lastError');
+          }
+        } else {
+          lastError = 'Файл не создан: $filePath';
+          print('⚠️ $lastError');
+        }
+      } catch (e) {
+        lastError = 'Ошибка записи в $dirPath: $e';
+        print('⚠️ $lastError');
+        continue;
       }
-    } catch (e) {
-      final tempDir = Directory.systemTemp;
-      savePath = '${tempDir.path}/$filename';
-      print('⚠️ Использую временную директорию: $savePath');
     }
 
-    final file = File(savePath);
-    await file.writeAsBytes(await pdf.save());
+    if (savedFile == null) {
+      throw Exception(
+        'Не удалось сохранить PDF.\n'
+        'Проверенные пути: ${triedPaths.join(", ")}\n'
+        'Последняя ошибка: $lastError',
+      );
+    }
 
-    print('✅ PDF сохранен: $savePath (${pages.length} страниц)');
-    return file;
+    print('✅ PDF итог: ${savedFile.path} (${pages.length} страниц)');
+    return savedFile;
   }
 
-  List<List<String>> _splitTextIntoPages(List<String> allLines, pw.Font font) {
+  List<List<String>> _splitTextIntoPages(List<String> allLines) {
     final pages = <List<String>>[];
     List<String> currentPage = [];
     double currentHeight = 0;
     const double maxHeight = 750;
 
-    // Начальная высота (заголовок)
     currentHeight = 100;
 
     for (final line in allLines) {
@@ -3558,11 +3544,10 @@ class ReportService {
         continue;
       }
 
-      // Одинаковая высота для всех строк
       double lineHeight = 18;
-
-      // Если это заголовок - чуть больше
-      if (line.contains('АКТ') ||
+      if (line.contains('=') || line.contains('-')) {
+        lineHeight = 12;
+      } else if (line.contains('АКТ') ||
           line.contains('ПРОВЕРКА') ||
           line.contains('РЕЗУЛЬТАТЫ') ||
           line.contains('КОНЕЦ') ||
@@ -3574,12 +3559,6 @@ class ReportService {
         lineHeight = 22;
       }
 
-      // Если это разделитель
-      if (line.contains('=') || line.contains('-')) {
-        lineHeight = 12;
-      }
-
-      // Если это пустая строка
       if (line.trim().isEmpty) {
         lineHeight = 8;
       }
@@ -3621,7 +3600,7 @@ class ReportService {
     if (isFirstPage) {
       children.add(
         pw.Container(
-          padding: const pw.EdgeInsets.all(16),
+          padding: const pw.EdgeInsets.all(20),
           color: PdfColors.blue,
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -3629,26 +3608,25 @@ class ReportService {
               pw.Text(
                 'АКТ ПРОВЕРКИ',
                 style: pw.TextStyle(
-                  fontSize: 24,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.white,
-                  font: font,
-                ),
-              ),
-              pw.SizedBox(height: 4),
-              pw.Text(
-                'БЛОЧНОГО ТЕПЛОВОГО ПУНКТА',
-                style: pw.TextStyle(
-                  fontSize: 18,
+                  fontSize: 28,
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.white,
                   font: font,
                 ),
               ),
               pw.SizedBox(height: 8),
-              // ===== ВОТ ЗДЕСЬ НАЗВАНИЕ ПРОЕКТА =====
               pw.Text(
-                projectName, // <-- НАЗВАНИЕ ИЗ НАСТРОЕК
+                'БЛОЧНОГО ТЕПЛОВОГО ПУНКТА',
+                style: pw.TextStyle(
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                  font: font,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text(
+                projectName,
                 style: pw.TextStyle(
                   fontSize: 16,
                   color: PdfColors.white,
@@ -3659,7 +3637,7 @@ class ReportService {
               pw.Text(
                 'Дата формирования: ${DateFormat('dd.MM.yyyy HH:mm').format(reportTime)}',
                 style: pw.TextStyle(
-                  fontSize: 10,
+                  fontSize: 12,
                   color: PdfColors.white,
                   font: font,
                 ),
@@ -3677,7 +3655,7 @@ class ReportService {
           child: pw.Text(
             'Продолжение отчета',
             style: pw.TextStyle(
-              fontSize: 16,
+              fontSize: 18,
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.white,
               font: font,
@@ -3688,14 +3666,12 @@ class ReportService {
       children.add(pw.SizedBox(height: 8));
     }
 
-    // Добавляем все строки с одинаковым стилем
     for (final line in lines) {
       if (line.trim().isEmpty) {
         children.add(pw.SizedBox(height: 6));
         continue;
       }
 
-      // Определяем стиль для строки
       bool isBold =
           line.contains('АКТ') ||
           line.contains('БЛОЧНОГО') ||
@@ -3709,8 +3685,6 @@ class ReportService {
           line.contains('4.');
 
       bool isHeader = line.contains('=') || line.contains('-');
-
-      // Убираем лишние пробелы в начале
       String cleanLine = line.trim();
 
       children.add(
@@ -3729,7 +3703,6 @@ class ReportService {
       );
     }
 
-    // Номер страницы
     children.add(pw.SizedBox(height: 16));
     children.add(
       pw.Container(
@@ -3747,109 +3720,6 @@ class ReportService {
       children: children,
     );
   }
-}
-
-
-=== FILE: lib\services\rtf_service.dart ===
-
-import 'dart:io';
-import 'dart:convert';
-// import 'package:intl/intl.dart';
-import '../models/report.dart';
-
-class RtfService {
-  // Генерация RTF файла (открывается в Word)
-  Future<File> generateRtf(ReportData report) async {
-    final content = _generateRtfContent(report);
-
-    // Используем системную временную директорию
-    final tempDir = Directory.systemTemp;
-    final file = File('${tempDir.path}/report_${report.id}.rtf');
-    await file.writeAsString(content, encoding: utf8);
-
-    return file;
-  }
-
-  String _generateRtfContent(ReportData report) {
-    final buffer = StringBuffer();
-    // final now = DateTime.now();
-    // final dateFormat = DateFormat('dd.MM.yyyy HH:mm');
-
-    // RTF заголовок
-    buffer.writeln(r'{\rtf1\ansi\deff0');
-    buffer.writeln(r'{\fonttbl{\f0\fnil\fcharset204 Arial;}}');
-    buffer.writeln(r'\viewkind4\uc1\pard\lang1049\f0\fs24');
-
-    // Заголовок
-    buffer.writeln(r'\pard\qc\b\fs36 АКТ ПРОВЕРКИ\b0\fs24\par');
-    buffer.writeln(r'\pard\qc\b\fs32 БЛОЧНОГО ТЕПЛОВОГО ПУНКТА\b0\fs24\par');
-    buffer.writeln(r'\par');
-    buffer.writeln(r'\pard\qc Дата: ${dateFormat.format(now)}\par');
-    buffer.writeln(r'\par');
-
-    // Добавляем текст отчета
-    final text = report.reportText ?? 'Отчет пуст';
-    final lines = text.split('\n');
-    for (var line in lines) {
-      if (line.trim().isEmpty) {
-        buffer.writeln(r'\par');
-      } else {
-        // Экранируем специальные символы
-        final escaped = line
-            .replaceAll(r'\', r'\\')
-            .replaceAll(r'{', r'\{')
-            .replaceAll(r'}', r'\}');
-        buffer.writeln('\\pard $escaped\\par');
-      }
-    }
-
-    buffer.writeln(r'\par');
-    buffer.writeln(r'\pard\qc\b КОНЕЦ ОТЧЕТА\b0\par');
-    buffer.writeln(
-      r'\pard\qc\fs18 Сгенерировано автоматически ${dateFormat.format(now)}\par',
-    );
-
-    // Закрытие RTF
-    buffer.writeln('}');
-
-    return buffer.toString();
-  }
-}
-
-
-=== FILE: lib\theme\app_theme.dart ===
-
-import 'package:flutter/material.dart';
-
-class AppTheme {
-  static ThemeData lightTheme = ThemeData(
-    useMaterial3: true,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xFF1565C0),
-      brightness: Brightness.light,
-    ),
-    appBarTheme: const AppBarTheme(
-      elevation: 0,
-      centerTitle: true,
-      backgroundColor: Color(0xFF1565C0),
-      foregroundColor: Colors.white,
-    ),
-    cardTheme: CardThemeData(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    ),
-    elevatedButtonTheme: ElevatedButtonThemeData(
-      style: ElevatedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
-    ),
-    inputDecorationTheme: InputDecorationTheme(
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-      filled: true,
-      fillColor: Colors.grey.shade50,
-    ),
-  );
 }
 
 
@@ -4131,351 +4001,4 @@ class Constants {
       orderIndex: 37,
     ),
   ];
-}
-
-
-=== FILE: lib\widgets\category_card.dart ===
-
-import 'package:flutter/material.dart';
-
-class CategoryCard extends StatelessWidget {
-  final String title;
-  final double progress;
-  final bool isComplete;
-  final int totalItems;
-  final int checkedItems;
-  final VoidCallback onTap;
-
-  const CategoryCard({
-    super.key,
-    required this.title,
-    required this.progress,
-    required this.isComplete,
-    required this.totalItems,
-    required this.checkedItems,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isComplete ? Colors.green : Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      isComplete ? '✅ Готово' : '${(progress * 100).round()}%',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isComplete ? Colors.white : Colors.black87,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$checkedItems из $totalItems проверено',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: progress,
-                backgroundColor: Colors.grey.shade200,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  isComplete ? Colors.green : Colors.blue,
-                ),
-                minHeight: 6,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-
-=== FILE: lib\widgets\commissioning_check_item.dart ===
-
-import 'package:flutter/material.dart';
-
-class CommissioningCheckItem extends StatelessWidget {
-  final String title;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-  final TextEditingController commentController;
-  final TextEditingController valueController;
-
-  const CommissioningCheckItem({
-    super.key,
-    required this.title,
-    required this.value,
-    required this.onChanged,
-    required this.commentController,
-    required this.valueController,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Checkbox(
-                  value: value,
-                  onChanged: (newValue) {
-                    if (newValue != null) {
-                      onChanged(newValue);
-                    }
-                  },
-                ),
-                Expanded(
-                  child: Text(title, style: const TextStyle(fontSize: 14)),
-                ),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.only(left: 40),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: valueController,
-                    decoration: const InputDecoration(
-                      hintText: 'Значение/результат...',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                    ),
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  const SizedBox(height: 4),
-                  TextField(
-                    controller: commentController,
-                    decoration: const InputDecoration(
-                      hintText: 'Комментарий...',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                    ),
-                    maxLines: 2,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-
-=== FILE: lib\widgets\electrical_check_item.dart ===
-
-import 'package:flutter/material.dart';
-
-class ElectricalCheckItem extends StatelessWidget {
-  final String title;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-  final TextEditingController commentController;
-
-  const ElectricalCheckItem({
-    super.key,
-    required this.title,
-    required this.value,
-    required this.onChanged,
-    required this.commentController,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Checkbox(
-                  value: value,
-                  onChanged: (newValue) {
-                    if (newValue != null) {
-                      onChanged(newValue);
-                    }
-                  },
-                ),
-                Expanded(
-                  child: Text(title, style: const TextStyle(fontSize: 14)),
-                ),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.only(left: 40),
-              child: TextField(
-                controller: commentController,
-                decoration: const InputDecoration(
-                  hintText: 'Комментарий...',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                ),
-                maxLines: 2,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-
-=== FILE: lib\widgets\photo_tile.dart ===
-
-import 'package:flutter/material.dart';
-import 'dart:io';
-import 'package:intl/intl.dart';
-import '../models/photo_record.dart';
-
-class PhotoTile extends StatefulWidget {
-  final PhotoRecord photo;
-  final VoidCallback onDelete;
-
-  const PhotoTile({super.key, required this.photo, required this.onDelete});
-
-  @override
-  State<PhotoTile> createState() => _PhotoTileState();
-}
-
-class _PhotoTileState extends State<PhotoTile> {
-  // bool _isLoading = true;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Row(
-          children: [
-            // Миниатюра
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.file(
-                File(widget.photo.path),
-                width: 60,
-                height: 60,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    width: 60,
-                    height: 60,
-                    color: Colors.grey.shade300,
-                    child: const Icon(Icons.broken_image, color: Colors.grey),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Информация
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.photo.description,
-                    style: const TextStyle(fontWeight: FontWeight.w500),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    DateFormat(
-                      'dd.MM.yyyy HH:mm',
-                    ).format(widget.photo.createdAt),
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-              ),
-            ),
-            // Кнопка удаления
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.red),
-              onPressed: () {
-                _showDeleteDialog();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showDeleteDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Удалить фото?'),
-        content: const Text('Это действие нельзя отменить.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              widget.onDelete();
-            },
-            child: const Text('Удалить', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
 }

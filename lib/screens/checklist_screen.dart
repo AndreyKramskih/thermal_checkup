@@ -131,36 +131,72 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   ) {
     final items = provider.itemsByCategory[category] ?? [];
     final currentComment = items[index].comment;
-    final controller = TextEditingController(text: currentComment);
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Комментарий'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'Введите комментарий...',
-            border: OutlineInputBorder(),
-          ),
-          maxLines: 3,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () async {
-              await provider.addComment(category, index, controller.text);
-              if (context.mounted) {
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Сохранить'),
-          ),
-        ],
+      builder: (dialogContext) => _CommentDialog(
+        initialComment: currentComment,
+        onSave: (comment) async {
+          await provider.addComment(category, index, comment);
+        },
       ),
+    );
+  }
+}
+
+class _CommentDialog extends StatefulWidget {
+  final String? initialComment;
+  final Future<void> Function(String) onSave;
+
+  const _CommentDialog({required this.initialComment, required this.onSave});
+
+  @override
+  State<_CommentDialog> createState() => _CommentDialogState();
+}
+
+class _CommentDialogState extends State<_CommentDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialComment ?? '');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Комментарий'),
+      content: TextField(
+        controller: _controller,
+        decoration: const InputDecoration(
+          hintText: 'Введите комментарий...',
+          border: OutlineInputBorder(),
+        ),
+        maxLines: 3,
+        autofocus: true,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена'),
+        ),
+        TextButton(
+          onPressed: () async {
+            await widget.onSave(_controller.text);
+            if (context.mounted) {
+              Navigator.pop(context);
+            }
+          },
+          child: const Text('Сохранить'),
+        ),
+      ],
     );
   }
 }
