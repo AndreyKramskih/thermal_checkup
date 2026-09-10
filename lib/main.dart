@@ -5,13 +5,13 @@ import 'providers/photo_provider.dart';
 import 'providers/report_provider.dart';
 import 'providers/electrical_provider.dart';
 import 'providers/commissioning_provider.dart';
+import 'providers/project_provider.dart'; // ДОБАВЛЯЕМ
 import 'screens/home_screen.dart';
 import 'services/database_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Инициализация базы данных
   final dbService = DatabaseService();
   await dbService.initDatabase();
 
@@ -30,6 +30,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ReportProvider()),
         ChangeNotifierProvider(create: (_) => ElectricalProvider()),
         ChangeNotifierProvider(create: (_) => CommissioningProvider()),
+        ChangeNotifierProvider(create: (_) => ProjectProvider()), // ДОБАВЛЯЕМ
       ],
       child: MaterialApp(
         title: 'Тепловой пункт - Проверка',

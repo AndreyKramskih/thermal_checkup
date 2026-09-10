@@ -491,10 +491,11 @@ class ReportService {
                 ),
               ),
               pw.SizedBox(height: 8),
+              // ===== ВОТ ЗДЕСЬ НАЗВАНИЕ ПРОЕКТА =====
               pw.Text(
-                projectName,
+                projectName, // <-- НАЗВАНИЕ ИЗ НАСТРОЕК
                 style: pw.TextStyle(
-                  fontSize: 14,
+                  fontSize: 16,
                   color: PdfColors.white,
                   font: font,
                 ),

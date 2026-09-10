@@ -7,6 +7,7 @@ import '../providers/checklist_provider.dart';
 import '../providers/report_provider.dart';
 import '../providers/electrical_provider.dart';
 import '../providers/commissioning_provider.dart';
+import '../providers/project_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -41,8 +42,55 @@ class _ReportScreenState extends State<ReportScreen> {
   Widget build(BuildContext context) {
     return Consumer3<ChecklistProvider, PhotoProvider, ReportProvider>(
       builder: (context, checklistProvider, photoProvider, reportProvider, child) {
+        // Получаем название проекта
+        final projectProvider = Provider.of<ProjectProvider>(context);
+        final projectName = projectProvider.projectName;
+
         return Column(
           children: [
+            // Показываем название проекта
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.business, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Проект:',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        Text(
+                          projectName,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit, size: 20),
+                    onPressed: () {
+                      _showEditProjectNameDialog(context, projectProvider);
+                    },
+                    tooltip: 'Изменить название',
+                  ),
+                ],
+              ),
+            ),
+
             // Кнопка генерации отчета
             Padding(
               padding: const EdgeInsets.all(16),
@@ -125,7 +173,9 @@ class _ReportScreenState extends State<ReportScreen> {
                         icon: const Icon(Icons.save),
                         onPressed: () async {
                           try {
-                            await reportProvider.savePdf(projectName: 'ИТП №1');
+                            await reportProvider.savePdf(
+                              projectName: projectName,
+                            );
                             final path = reportProvider.pdfFile?.path ?? '';
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -145,14 +195,14 @@ class _ReportScreenState extends State<ReportScreen> {
                         },
                         color: Colors.orange,
                       ),
-                      // Кнопка "Поделиться PDF" (только отчет)
+                      // Кнопка "Поделиться PDF"
                       IconButton(
                         icon: const Icon(Icons.share),
                         onPressed: () async {
                           try {
                             if (reportProvider.pdfFile == null) {
                               await reportProvider.savePdf(
-                                projectName: 'ИТП №1',
+                                projectName: projectName,
                               );
                             }
                             await reportProvider.shareReport();
@@ -182,7 +232,7 @@ class _ReportScreenState extends State<ReportScreen> {
                           try {
                             if (reportProvider.pdfFile == null) {
                               await reportProvider.savePdf(
-                                projectName: 'ИТП №1',
+                                projectName: projectName,
                               );
                             }
                             await reportProvider.shareReportWithPhotos(
@@ -246,14 +296,12 @@ class _ReportScreenState extends State<ReportScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Кнопка камеры
                   IconButton.filled(
                     onPressed: () => _takePhoto(context, photoProvider),
                     icon: const Icon(Icons.camera_alt),
                     style: IconButton.styleFrom(backgroundColor: Colors.blue),
                   ),
                   const SizedBox(width: 4),
-                  // Кнопка галереи
                   IconButton.filled(
                     onPressed: () => _pickFromGallery(context, photoProvider),
                     icon: const Icon(Icons.photo_library),
@@ -362,6 +410,53 @@ class _ReportScreenState extends State<ReportScreen> {
           ],
         );
       },
+    );
+  }
+
+  // ===== ДИАЛОГ РЕДАКТИРОВАНИЯ НАЗВАНИЯ ПРОЕКТА =====
+  void _showEditProjectNameDialog(
+    BuildContext context,
+    ProjectProvider provider,
+  ) {
+    final controller = TextEditingController(text: provider.projectName);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Название проекта'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Название теплового пункта',
+            hintText: 'Например: ИТП №1',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                provider.setProjectName(controller.text.trim());
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '✅ Название сохранено: ${controller.text.trim()}',
+                    ),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -597,6 +692,11 @@ class _ReportScreenState extends State<ReportScreen> {
 
   void _showReportPreview(ReportProvider reportProvider) {
     final reportText = reportProvider.reportText ?? 'Отчет пуст';
+    final projectProvider = Provider.of<ProjectProvider>(
+      context,
+      listen: false,
+    );
+    final projectName = projectProvider.projectName;
 
     showDialog(
       context: context,
@@ -618,6 +718,10 @@ class _ReportScreenState extends State<ReportScreen> {
                 Text(
                   '📅 ${reportProvider.currentReport?.formattedDate ?? ''}',
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                Text(
+                  '🏢 $projectName',
+                  style: const TextStyle(fontSize: 12, color: Colors.blue),
                 ),
                 const SizedBox(height: 8),
                 const Divider(),
@@ -666,7 +770,7 @@ class _ReportScreenState extends State<ReportScreen> {
                 try {
                   Navigator.pop(context);
                   if (reportProvider.pdfFile == null) {
-                    await reportProvider.savePdf(projectName: 'ИТП №1');
+                    await reportProvider.savePdf(projectName: projectName);
                   }
                   await reportProvider.shareReport();
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -691,7 +795,7 @@ class _ReportScreenState extends State<ReportScreen> {
                 Navigator.pop(context);
                 _shareWithPhotos(reportProvider);
               },
-              child: const Text('📸 Поделиться PDF + фото'),
+              child: const Text('📸 PDF + фото'),
             ),
           ],
         );
@@ -702,9 +806,13 @@ class _ReportScreenState extends State<ReportScreen> {
   void _shareWithPhotos(ReportProvider reportProvider) async {
     try {
       final photoProvider = Provider.of<PhotoProvider>(context, listen: false);
+      final projectProvider = Provider.of<ProjectProvider>(
+        context,
+        listen: false,
+      );
 
       if (reportProvider.pdfFile == null) {
-        await reportProvider.savePdf(projectName: 'ИТП №1');
+        await reportProvider.savePdf(projectName: projectProvider.projectName);
       }
 
       await reportProvider.shareReportWithPhotos(photoProvider.photos);

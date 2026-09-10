@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/checklist_provider.dart';
 import '../providers/photo_provider.dart';
-// import '../providers/report_provider.dart';
+import 'project_settings_screen.dart';
 import 'categories_screen.dart';
 import 'electrical_screen.dart';
 import 'commissioning_screen.dart';
@@ -53,6 +53,18 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text(_titles[_selectedIndex]),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ProjectSettingsScreen(),
+                ),
+              );
+            },
+            tooltip: 'Настройки проекта',
+          ),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
         ],
       ),
