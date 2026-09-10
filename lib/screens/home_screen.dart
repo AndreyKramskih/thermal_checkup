@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/checklist_provider.dart';
 import '../providers/photo_provider.dart';
-import 'project_settings_screen.dart';
+import '../providers/report_provider.dart';
+import '../providers/electrical_provider.dart';
+import '../providers/commissioning_provider.dart';
 import 'categories_screen.dart';
 import 'electrical_screen.dart';
 import 'commissioning_screen.dart';
-import 'report_screen.dart'; // Убедитесь, что этот импорт есть
+import 'report_screen.dart';
+import 'project_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,7 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
     const CategoriesScreen(),
     const ElectricalScreen(),
     const CommissioningScreen(),
-    const ReportScreen(), // <-- Здесь ошибка, если ReportScreen не найден
+    const ReportScreen(),
   ];
 
   final List<String> _titles = [
@@ -106,8 +109,16 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Сбросить данные?'),
-        content: const Text('Все данные проверки будут сброшены. Продолжить?'),
+        title: const Text('Сбросить все данные?'),
+        content: const Text(
+          'Будут сброшены:\n'
+          '• Все отметки в чек-листе\n'
+          '• Все комментарии монтажа\n'
+          '• Все данные электромонтажа\n'
+          '• Все данные ПНР\n'
+          '• Все фотографии\n\n'
+          'Продолжить?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -116,23 +127,38 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              await Provider.of<ChecklistProvider>(
-                context,
-                listen: false,
-              ).resetAll();
+              await _resetAllData();
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Данные сброшены'),
+                    content: Text('✅ Все данные сброшены'),
                     backgroundColor: Colors.green,
                   ),
                 );
               }
             },
-            child: const Text('Сбросить'),
+            child: const Text('Сбросить', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
+  }
+
+  // ===== МЕТОД ПОЛНОГО СБРОСА =====
+  Future<void> _resetAllData() async {
+    // 1. Сброс чек-листа монтажа
+    await Provider.of<ChecklistProvider>(context, listen: false).resetAll();
+
+    // 2. Сброс данных электромонтажа
+    await Provider.of<ElectricalProvider>(context, listen: false).resetAll();
+
+    // 3. Сброс данных ПНР
+    await Provider.of<CommissioningProvider>(context, listen: false).resetAll();
+
+    // 4. Сброс данных отчета
+    Provider.of<ReportProvider>(context, listen: false).resetReport();
+
+    // 5. Перезагрузка фото (они удаляются отдельно через UI)
+    await Provider.of<PhotoProvider>(context, listen: false).loadPhotos();
   }
 }

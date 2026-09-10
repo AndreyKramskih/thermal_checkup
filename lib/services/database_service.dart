@@ -11,6 +11,9 @@ class DatabaseService {
 
   static const String _checklistKey = 'checklist_items';
   static const String _photosKey = 'photos';
+  static const String _electricalKey = 'electrical_data';
+  static const String _commissioningKey = 'commissioning_data';
+  static const String _checklistVersionKey = 'checklist_version';
 
   late SharedPreferences _prefs;
   bool _isInitialized = false;
@@ -20,17 +23,15 @@ class DatabaseService {
     _prefs = await SharedPreferences.getInstance();
     _isInitialized = true;
 
-    // Проверяем версию данных
-    final currentVersion = _prefs.getString('checklist_version') ?? '0';
-    final newVersion = '2.0'; // Новая версия с полным списком
+    final currentVersion = _prefs.getString(_checklistVersionKey) ?? '0';
+    final newVersion = '2.0';
 
-    // Если версия не совпадает - пересоздаем данные
     if (currentVersion != newVersion) {
       print(
         '🔄 Обновление данных чек-листа с версии $currentVersion до $newVersion',
       );
       await _initChecklistData(force: true);
-      await _prefs.setString('checklist_version', newVersion);
+      await _prefs.setString(_checklistVersionKey, newVersion);
     } else if (!_prefs.containsKey(_checklistKey)) {
       await _initChecklistData();
     }
@@ -38,17 +39,17 @@ class DatabaseService {
 
   Future<void> _initChecklistData({bool force = false}) async {
     if (force) {
-      // Удаляем старые данные
       await _prefs.remove(_checklistKey);
     }
 
-    // Получаем данные из Constants
     final items = Constants.checklistData;
     final itemsJson = items.map((item) => item.toMap()).toList();
     await _prefs.setString(_checklistKey, jsonEncode(itemsJson));
 
     print('✅ Инициализировано ${items.length} пунктов чек-листа');
   }
+
+  // ========== ЧЕКЛИСТ ==========
 
   Future<Map<String, List<CheckItem>>> getChecklistItems() async {
     if (!_isInitialized) await initDatabase();
@@ -92,6 +93,8 @@ class DatabaseService {
     await _prefs.setString(_checklistKey, jsonEncode(updatedList));
   }
 
+  // ========== ФОТО ==========
+
   Future<void> savePhoto(PhotoRecord photo) async {
     if (!_isInitialized) await initDatabase();
 
@@ -134,11 +137,49 @@ class DatabaseService {
     await _prefs.setString(_photosKey, jsonEncode(updatedList));
   }
 
+  // ========== ЭЛЕКТРИКА (НОВОЕ!) ==========
+
+  Future<void> saveElectricalData(Map<String, dynamic> data) async {
+    if (!_isInitialized) await initDatabase();
+    await _prefs.setString(_electricalKey, jsonEncode(data));
+    print('💾 Данные электрики сохранены');
+  }
+
+  Future<Map<String, dynamic>?> getElectricalData() async {
+    if (!_isInitialized) await initDatabase();
+
+    final String? dataJson = _prefs.getString(_electricalKey);
+    if (dataJson == null) return null;
+
+    return jsonDecode(dataJson) as Map<String, dynamic>;
+  }
+
+  // ========== ПНР (НОВОЕ!) ==========
+
+  Future<void> saveCommissioningData(Map<String, dynamic> data) async {
+    if (!_isInitialized) await initDatabase();
+    await _prefs.setString(_commissioningKey, jsonEncode(data));
+    print('💾 Данные ПНР сохранены');
+  }
+
+  Future<Map<String, dynamic>?> getCommissioningData() async {
+    if (!_isInitialized) await initDatabase();
+
+    final String? dataJson = _prefs.getString(_commissioningKey);
+    if (dataJson == null) return null;
+
+    return jsonDecode(dataJson) as Map<String, dynamic>;
+  }
+
+  // ========== СБРОС ==========
+
   Future<void> resetAllData() async {
     if (!_isInitialized) await initDatabase();
     await _prefs.remove(_checklistKey);
     await _prefs.remove(_photosKey);
-    await _prefs.remove('checklist_version');
+    await _prefs.remove(_electricalKey);
+    await _prefs.remove(_commissioningKey);
+    await _prefs.remove(_checklistVersionKey);
     await _initChecklistData();
   }
 }

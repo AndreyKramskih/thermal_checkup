@@ -15,11 +15,20 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
   @override
   void initState() {
     super.initState();
+    // Инициализация контроллеров после загрузки данных
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initControllers();
+    });
+  }
+
+  void _initControllers() {
     final provider = Provider.of<ElectricalProvider>(context, listen: false);
     for (var key in provider.items.keys) {
-      _commentControllers[key] = TextEditingController(
-        text: provider.comments[key] ?? '',
-      );
+      if (!_commentControllers.containsKey(key)) {
+        _commentControllers[key] = TextEditingController(
+          text: provider.comments[key] ?? '',
+        );
+      }
     }
   }
 
@@ -35,6 +44,11 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
   Widget build(BuildContext context) {
     return Consumer<ElectricalProvider>(
       builder: (context, provider, child) {
+        // Инициализируем контроллеры если еще не сделали
+        if (_commentControllers.isEmpty) {
+          _initControllers();
+        }
+
         return Scaffold(
           body: ListView(
             padding: const EdgeInsets.all(16),
@@ -64,6 +78,13 @@ class _ElectricalScreenState extends State<ElectricalScreen> {
               const SizedBox(height: 16),
               ...provider.items.keys.map((title) {
                 final bool value = provider.items[title] ?? false;
+
+                // Убеждаемся что контроллер существует
+                if (!_commentControllers.containsKey(title)) {
+                  _commentControllers[title] = TextEditingController(
+                    text: provider.comments[title] ?? '',
+                  );
+                }
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),

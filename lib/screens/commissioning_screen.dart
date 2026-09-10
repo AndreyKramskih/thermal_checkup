@@ -15,11 +15,19 @@ class _CommissioningScreenState extends State<CommissioningScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initControllers();
+    });
+  }
+
+  void _initControllers() {
     final provider = Provider.of<CommissioningProvider>(context, listen: false);
     for (var key in provider.items.keys) {
-      _commentControllers[key] = TextEditingController(
-        text: provider.comments[key] ?? '',
-      );
+      if (!_commentControllers.containsKey(key)) {
+        _commentControllers[key] = TextEditingController(
+          text: provider.comments[key] ?? '',
+        );
+      }
     }
   }
 
@@ -35,6 +43,10 @@ class _CommissioningScreenState extends State<CommissioningScreen> {
   Widget build(BuildContext context) {
     return Consumer<CommissioningProvider>(
       builder: (context, provider, child) {
+        if (_commentControllers.isEmpty) {
+          _initControllers();
+        }
+
         return Scaffold(
           body: ListView(
             padding: const EdgeInsets.all(16),
@@ -64,6 +76,12 @@ class _CommissioningScreenState extends State<CommissioningScreen> {
               const SizedBox(height: 16),
               ...provider.items.keys.map((title) {
                 final bool value = provider.items[title] ?? false;
+
+                if (!_commentControllers.containsKey(title)) {
+                  _commentControllers[title] = TextEditingController(
+                    text: provider.comments[title] ?? '',
+                  );
+                }
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),

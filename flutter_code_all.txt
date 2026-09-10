@@ -1,0 +1,4481 @@
+
+
+=== FILE: lib\main.dart ===
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'providers/checklist_provider.dart';
+import 'providers/photo_provider.dart';
+import 'providers/report_provider.dart';
+import 'providers/electrical_provider.dart';
+import 'providers/commissioning_provider.dart';
+import 'providers/project_provider.dart'; // ДОБАВЛЯЕМ
+import 'screens/home_screen.dart';
+import 'services/database_service.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final dbService = DatabaseService();
+  await dbService.initDatabase();
+
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ChecklistProvider()),
+        ChangeNotifierProvider(create: (_) => PhotoProvider()),
+        ChangeNotifierProvider(create: (_) => ReportProvider()),
+        ChangeNotifierProvider(create: (_) => ElectricalProvider()),
+        ChangeNotifierProvider(create: (_) => CommissioningProvider()),
+        ChangeNotifierProvider(create: (_) => ProjectProvider()), // ДОБАВЛЯЕМ
+      ],
+      child: MaterialApp(
+        title: 'Тепловой пункт - Проверка',
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF1565C0),
+            brightness: Brightness.light,
+          ),
+          appBarTheme: const AppBarTheme(
+            elevation: 0,
+            centerTitle: true,
+            backgroundColor: Color(0xFF1565C0),
+            foregroundColor: Colors.white,
+          ),
+        ),
+        debugShowCheckedModeBanner: false,
+        home: const HomeScreen(),
+      ),
+    );
+  }
+}
+
+
+=== FILE: lib\models\check_item.dart ===
+
+class CheckItem {
+  final String id;
+  final String category;
+  final String title;
+  final String description;
+  bool isChecked;
+  String? comment;
+  final int orderIndex;
+
+  CheckItem({
+    required this.id,
+    required this.category,
+    required this.title,
+    required this.description,
+    this.isChecked = false,
+    this.comment,
+    required this.orderIndex,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'category': category,
+      'title': title,
+      'description': description,
+      'isChecked': isChecked ? 1 : 0,
+      'comment': comment,
+      'orderIndex': orderIndex,
+    };
+  }
+
+  factory CheckItem.fromMap(Map<String, dynamic> map) {
+    return CheckItem(
+      id: map['id'],
+      category: map['category'],
+      title: map['title'],
+      description: map['description'],
+      isChecked: map['isChecked'] == 1,
+      comment: map['comment'],
+      orderIndex: map['orderIndex'],
+    );
+  }
+}
+
+
+=== FILE: lib\models\photo_record.dart ===
+
+class PhotoRecord {
+  final String id;
+  final String path;
+  final String description;
+  final DateTime createdAt;
+
+  PhotoRecord({
+    required this.id,
+    required this.path,
+    required this.description,
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'path': path,
+      'description': description,
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
+
+  factory PhotoRecord.fromMap(Map<String, dynamic> map) {
+    return PhotoRecord(
+      id: map['id'],
+      path: map['path'],
+      description: map['description'],
+      createdAt: DateTime.parse(map['createdAt']),
+    );
+  }
+}
+
+
+=== FILE: lib\models\report.dart ===
+
+import 'package:intl/intl.dart';
+
+class ReportData {
+  final String id;
+  final DateTime generatedAt;
+  final Map<String, dynamic> data;
+  final String pdfPath;
+  final String? reportText;
+
+  ReportData({
+    required this.id,
+    required this.generatedAt,
+    required this.data,
+    required this.pdfPath,
+    this.reportText,
+  });
+
+  String get formattedDate =>
+      DateFormat('dd.MM.yyyy HH:mm').format(generatedAt);
+}
+
+
+=== FILE: lib\providers\checklist_provider.dart ===
+
+import 'package:flutter/material.dart';
+import '../models/check_item.dart';
+import '../services/database_service.dart';
+
+class ChecklistProvider extends ChangeNotifier {
+  final DatabaseService _db = DatabaseService();
+
+  Map<String, List<CheckItem>> _itemsByCategory = {};
+  Map<String, bool> _categoryStatus = {};
+
+  Map<String, List<CheckItem>> get itemsByCategory => _itemsByCategory;
+  Map<String, bool> get categoryStatus => _categoryStatus;
+
+  // Загрузка данных из БД
+  Future<void> loadChecklist() async {
+    _itemsByCategory = await _db.getChecklistItems();
+    _updateCategoryStatus();
+    notifyListeners();
+  }
+
+  void _updateCategoryStatus() {
+    for (var entry in _itemsByCategory.entries) {
+      final items = entry.value;
+      if (items.isEmpty) {
+        _categoryStatus[entry.key] = false;
+      } else {
+        _categoryStatus[entry.key] = items.every((item) => item.isChecked);
+      }
+    }
+  }
+
+  // Переключение статуса пункта
+  Future<void> toggleItem(String category, int index) async {
+    final item = _itemsByCategory[category]?[index];
+    if (item != null) {
+      item.isChecked = !item.isChecked;
+      await _db.updateChecklistItem(item);
+      _updateCategoryStatus();
+      notifyListeners();
+    }
+  }
+
+  // Добавление комментария
+  Future<void> addComment(String category, int index, String comment) async {
+    final item = _itemsByCategory[category]?[index];
+    if (item != null) {
+      item.comment = comment;
+      await _db.updateChecklistItem(item);
+      notifyListeners();
+    }
+  }
+
+  // Получение прогресса
+  double getProgress() {
+    int total = 0;
+    int checked = 0;
+
+    for (var items in _itemsByCategory.values) {
+      total += items.length;
+      checked += items.where((item) => item.isChecked).length;
+    }
+
+    return total > 0 ? checked / total : 0;
+  }
+
+  // Сброс всех данных
+  Future<void> resetAll() async {
+    await _db.resetAllData();
+    await loadChecklist();
+  }
+}
+
+
+=== FILE: lib\providers\commissioning_provider.dart ===
+
+import 'package:flutter/material.dart';
+
+class CommissioningProvider extends ChangeNotifier {
+  final Map<String, bool> _items = {
+    'Работоспособность программы в контроллере': false,
+    'Работоспособность программы в панели': false,
+    'Правильность сборки шкафа согласно схемы': false,
+    'Правильность электросхемы': false,
+    'Отсутствие брака в компонентах': false,
+    'Качество регулирования': false,
+  };
+
+  final Map<String, String> _comments = {};
+
+  Map<String, bool> get items => _items;
+  Map<String, String> get comments => _comments;
+
+  void toggleItem(String key, bool value) {
+    _items[key] = value;
+    notifyListeners();
+  }
+
+  void setComment(String key, String comment) {
+    _comments[key] = comment;
+    notifyListeners();
+  }
+
+  Map<String, dynamic> getData() {
+    return {'items': Map.from(_items), 'comments': Map.from(_comments)};
+  }
+
+  void resetAll() {
+    for (var key in _items.keys) {
+      _items[key] = false;
+      _comments[key] = '';
+    }
+    notifyListeners();
+  }
+}
+
+
+=== FILE: lib\providers\electrical_provider.dart ===
+
+import 'package:flutter/material.dart';
+
+class ElectricalProvider extends ChangeNotifier {
+  final Map<String, bool> _items = {
+    'Датчики подключены согласно схеме': false,
+    'Реле подключены согласно схеме': false,
+    'Насосы подключены согласно схеме': false,
+    'Привода подключены согласно схеме': false,
+    'Кабеля промаркированы согласно схеме': false,
+    'Тип кабелей соответствует схеме': false,
+  };
+
+  final Map<String, String> _comments = {};
+
+  Map<String, bool> get items => _items;
+  Map<String, String> get comments => _comments;
+
+  void toggleItem(String key, bool value) {
+    _items[key] = value;
+    notifyListeners();
+  }
+
+  void setComment(String key, String comment) {
+    _comments[key] = comment;
+    notifyListeners();
+  }
+
+  Map<String, dynamic> getData() {
+    return {'items': Map.from(_items), 'comments': Map.from(_comments)};
+  }
+
+  void resetAll() {
+    for (var key in _items.keys) {
+      _items[key] = false;
+      _comments[key] = '';
+    }
+    notifyListeners();
+  }
+}
+
+
+=== FILE: lib\providers\photo_provider.dart ===
+
+import 'dart:io';
+import 'package:flutter/material.dart';
+import '../models/photo_record.dart';
+import '../services/database_service.dart';
+import '../services/photo_service.dart';
+
+class PhotoProvider extends ChangeNotifier {
+  final DatabaseService _db = DatabaseService();
+  final PhotoService _photoService = PhotoService();
+
+  List<PhotoRecord> _photos = [];
+
+  List<PhotoRecord> get photos => _photos;
+  PhotoService get photoService => _photoService;
+
+  Future<void> loadPhotos() async {
+    _photos = await _db.getPhotos();
+    notifyListeners();
+  }
+
+  Future<void> addPhoto(File imageFile, String description) async {
+    final record = await _photoService.savePhoto(imageFile, description);
+    _photos.add(record);
+    notifyListeners();
+  }
+
+  // Добавление тестового фото (для демонстрации без камеры)
+  Future<void> addTestPhoto(String description) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final id = 'test_photo_$timestamp';
+
+    final photo = PhotoRecord(
+      id: id,
+      path: 'test_photo_$timestamp.jpg',
+      description: description,
+      createdAt: DateTime.now(),
+    );
+
+    await _db.savePhoto(photo);
+    _photos.add(photo);
+    notifyListeners();
+  }
+
+  Future<void> deletePhoto(String id) async {
+    await _db.deletePhoto(id);
+    _photos.removeWhere((photo) => photo.id == id);
+    notifyListeners();
+  }
+
+  List<PhotoRecord> getPhotosForReport() {
+    return _photos;
+  }
+}
+
+
+=== FILE: lib\providers\project_provider.dart ===
+
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class ProjectProvider extends ChangeNotifier {
+  static const String _projectNameKey = 'project_name';
+
+  String _projectName = 'ИТП №1';
+
+  String get projectName => _projectName;
+
+  ProjectProvider() {
+    _loadProjectName();
+  }
+
+  Future<void> _loadProjectName() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedName = prefs.getString(_projectNameKey);
+      if (savedName != null && savedName.isNotEmpty) {
+        _projectName = savedName;
+        notifyListeners();
+      }
+    } catch (e) {
+      print('Ошибка загрузки названия проекта: $e');
+    }
+  }
+
+  Future<void> setProjectName(String name) async {
+    if (name.trim().isEmpty) return;
+
+    _projectName = name.trim();
+    notifyListeners();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_projectNameKey, _projectName);
+    } catch (e) {
+      print('Ошибка сохранения названия проекта: $e');
+    }
+  }
+}
+
+
+=== FILE: lib\providers\report_provider.dart ===
+
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:intl/intl.dart';
+import '../models/report.dart';
+import '../models/photo_record.dart';
+import '../services/report_service.dart';
+
+class ReportProvider extends ChangeNotifier {
+  final ReportService _reportService = ReportService();
+
+  ReportData? _currentReport;
+  bool _isGenerating = false;
+  String? _reportText;
+  File? _pdfFile;
+
+  // Хранилище для комментариев из электрики и ПНР
+  Map<String, String> _electricalComments = {};
+  Map<String, String> _commissioningComments = {};
+
+  ReportData? get currentReport => _currentReport;
+  bool get isGenerating => _isGenerating;
+  String? get reportText => _reportText;
+  File? get pdfFile => _pdfFile;
+
+  void setElectricalComments(Map<String, String> comments) {
+    _electricalComments = comments;
+    notifyListeners();
+  }
+
+  void setCommissioningComments(Map<String, String> comments) {
+    _commissioningComments = comments;
+    notifyListeners();
+  }
+
+  Map<String, String> get electricalComments => _electricalComments;
+  Map<String, String> get commissioningComments => _commissioningComments;
+
+  Future<void> generateReport({
+    required Map<String, List> checklistItems,
+    required List<String> photoPaths,
+    required List<String> photoDescriptions,
+    required Map<String, dynamic> electricalData,
+    required Map<String, dynamic> commissioningData,
+  }) async {
+    _isGenerating = true;
+    notifyListeners();
+
+    try {
+      final electricalDataWithComments = Map<String, dynamic>.from(
+        electricalData,
+      );
+      electricalDataWithComments['comments'] = _electricalComments;
+
+      final commissioningDataWithComments = Map<String, dynamic>.from(
+        commissioningData,
+      );
+      commissioningDataWithComments['comments'] = _commissioningComments;
+
+      _currentReport = await _reportService.generateReport(
+        checklistItems: checklistItems,
+        photoPaths: photoPaths,
+        photoDescriptions: photoDescriptions,
+        electricalData: electricalDataWithComments,
+        commissioningData: commissioningDataWithComments,
+      );
+
+      _reportText = _currentReport?.reportText;
+
+      print('Отчет сгенерирован, длина текста: ${_reportText?.length ?? 0}');
+    } catch (e) {
+      print('Ошибка при генерации отчета: $e');
+      _reportText = 'Ошибка при генерации отчета: $e';
+    } finally {
+      _isGenerating = false;
+      notifyListeners();
+    }
+  }
+
+  // Сохранить отчет в PDF
+  Future<void> savePdf({required String projectName}) async {
+    if (_reportText == null || _reportText!.isEmpty) {
+      throw Exception('Отчет не сгенерирован или пуст');
+    }
+
+    _pdfFile = await _reportService.generateAndSavePdf(
+      projectName: projectName,
+      reportTime: DateTime.now(),
+      reportText: _reportText!,
+    );
+
+    notifyListeners();
+  }
+
+  // ========== НОВЫЙ МЕТОД ДЛЯ ОТПРАВКИ ОТЧЕТА С ФОТО ==========
+  Future<void> shareReportWithPhotos(List<PhotoRecord> photos) async {
+    if (_pdfFile == null) {
+      throw Exception('PDF файл не найден. Сначала сохраните отчет.');
+    }
+
+    // Проверяем, существует ли файл
+    if (!await _pdfFile!.exists()) {
+      throw Exception('Файл отчета не найден на диске');
+    }
+
+    // Создаем список файлов для отправки
+    final List<XFile> files = [];
+
+    // Добавляем PDF
+    files.add(XFile(_pdfFile!.path));
+
+    // Добавляем фото, если они есть
+    for (var photo in photos) {
+      try {
+        final file = File(photo.path);
+        if (await file.exists()) {
+          files.add(XFile(photo.path));
+          print('✅ Добавлено фото: ${photo.description}');
+        }
+      } catch (e) {
+        print('⚠️ Не удалось добавить фото: ${photo.description} - $e');
+      }
+    }
+
+    // Формируем текст сообщения
+    String text = '📄 Акт проверки блочного теплового пункта\n';
+    text +=
+        '📅 Дата: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}\n\n';
+    text += '📎 К отчету приложены фотоматериалы (${photos.length} шт.)\n';
+    text += 'Отчет сгенерирован автоматически.';
+
+    // Отправляем через share_plus
+    await Share.shareXFiles(
+      files,
+      text: text,
+      subject: 'Акт проверки теплового пункта',
+    );
+  }
+
+  // Простая отправка только PDF
+  Future<void> shareReport() async {
+    if (_pdfFile == null) {
+      throw Exception('PDF файл не найден. Сначала сохраните отчет.');
+    }
+
+    if (!await _pdfFile!.exists()) {
+      throw Exception('Файл отчета не найден на диске');
+    }
+
+    await Share.shareXFiles(
+      [XFile(_pdfFile!.path)],
+      text:
+          '📄 Акт проверки блочного теплового пункта\n'
+          'Дата: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}\n\n'
+          'Отчет сгенерирован автоматически.',
+      subject: 'Акт проверки теплового пункта',
+    );
+  }
+
+  String? getPdfPath() {
+    return _pdfFile?.path;
+  }
+
+  void resetReport() {
+    _currentReport = null;
+    _reportText = null;
+    _pdfFile = null;
+    _electricalComments = {};
+    _commissioningComments = {};
+    notifyListeners();
+  }
+}
+
+
+=== FILE: lib\screens\categories_screen.dart ===
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/checklist_provider.dart';
+import 'checklist_screen.dart';
+
+class CategoriesScreen extends StatelessWidget {
+  const CategoriesScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ChecklistProvider>(
+      builder: (context, provider, child) {
+        if (provider.itemsByCategory.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final categories = provider.itemsByCategory.keys.toList();
+
+        return Column(
+          children: [
+            // Прогресс бар
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Общий прогресс',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        '${(provider.getProgress() * 100).round()}%',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: provider.getProgress(),
+                    backgroundColor: Colors.grey.shade300,
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      Colors.blue,
+                    ),
+                    minHeight: 8,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ],
+              ),
+            ),
+
+            // Список категорий
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: categories.length,
+                itemBuilder: (context, index) {
+                  final category = categories[index];
+                  final items = provider.itemsByCategory[category]!;
+                  final isComplete = provider.categoryStatus[category] ?? false;
+                  final checkedCount = items
+                      .where((item) => item.isChecked)
+                      .length;
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ChecklistScreen(
+                              category: category,
+                              items: items,
+                            ),
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    category,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isComplete
+                                        ? Colors.green
+                                        : Colors.grey.shade200,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    isComplete
+                                        ? '✅ Готово'
+                                        : '${(checkedCount / items.length * 100).round()}%',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isComplete
+                                          ? Colors.white
+                                          : Colors.black87,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '$checkedCount из ${items.length} проверено',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            LinearProgressIndicator(
+                              value: checkedCount / items.length,
+                              backgroundColor: Colors.grey.shade200,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                isComplete ? Colors.green : Colors.blue,
+                              ),
+                              minHeight: 6,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+
+=== FILE: lib\screens\checklist_screen.dart ===
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/check_item.dart';
+import '../providers/checklist_provider.dart';
+
+class ChecklistScreen extends StatefulWidget {
+  final String category;
+  final List<CheckItem> items;
+
+  const ChecklistScreen({
+    super.key,
+    required this.category,
+    required this.items,
+  });
+
+  @override
+  State<ChecklistScreen> createState() => _ChecklistScreenState();
+}
+
+class _ChecklistScreenState extends State<ChecklistScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ChecklistProvider>(
+      builder: (context, provider, child) {
+        // Получаем актуальные данные из провайдера
+        final currentItems = provider.itemsByCategory[widget.category] ?? [];
+
+        return Scaffold(
+          appBar: AppBar(title: Text(widget.category)),
+          body: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: currentItems.length,
+            itemBuilder: (context, index) {
+              final item = currentItems[index];
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: Checkbox(
+                        value: item.isChecked,
+                        onChanged: (_) async {
+                          // Используем setState для обновления UI
+                          setState(() {
+                            // Изменяем состояние локально
+                          });
+                          // Обновляем в провайдере
+                          await provider.toggleItem(widget.category, index);
+                        },
+                      ),
+                      title: Text(
+                        item.title,
+                        style: TextStyle(
+                          fontSize: 14,
+                          decoration: item.isChecked
+                              ? TextDecoration.lineThrough
+                              : TextDecoration.none,
+                          color: item.isChecked ? Colors.grey : Colors.black,
+                        ),
+                      ),
+                      subtitle: item.description.isNotEmpty
+                          ? Text(
+                              item.description,
+                              style: const TextStyle(fontSize: 12),
+                            )
+                          : null,
+                      trailing: IconButton(
+                        icon: const Icon(Icons.comment, size: 20),
+                        onPressed: () {
+                          _showCommentDialog(
+                            context,
+                            provider,
+                            widget.category,
+                            index,
+                          );
+                        },
+                      ),
+                    ),
+                    if (item.comment != null && item.comment!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(
+                          left: 16,
+                          right: 16,
+                          bottom: 8,
+                        ),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.comment,
+                                  size: 16,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    item.comment!,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  void _showCommentDialog(
+    BuildContext context,
+    ChecklistProvider provider,
+    String category,
+    int index,
+  ) {
+    final items = provider.itemsByCategory[category] ?? [];
+    final currentComment = items[index].comment;
+    final controller = TextEditingController(text: currentComment);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Комментарий'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Введите комментарий...',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () async {
+              await provider.addComment(category, index, controller.text);
+              if (context.mounted) {
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+=== FILE: lib\screens\commissioning_screen.dart ===
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/commissioning_provider.dart';
+
+class CommissioningScreen extends StatefulWidget {
+  const CommissioningScreen({super.key});
+
+  @override
+  State<CommissioningScreen> createState() => _CommissioningScreenState();
+}
+
+class _CommissioningScreenState extends State<CommissioningScreen> {
+  final Map<String, TextEditingController> _commentControllers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    final provider = Provider.of<CommissioningProvider>(context, listen: false);
+    for (var key in provider.items.keys) {
+      _commentControllers[key] = TextEditingController(
+        text: provider.comments[key] ?? '',
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _commentControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<CommissioningProvider>(
+      builder: (context, provider, child) {
+        return Scaffold(
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Проверка ПНР',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Проверка работоспособности и качества регулирования системы',
+                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ...provider.items.keys.map((title) {
+                final bool value = provider.items[title] ?? false;
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: value,
+                              onChanged: (newValue) {
+                                provider.toggleItem(title, newValue ?? false);
+                              },
+                            ),
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 40),
+                          child: TextField(
+                            controller: _commentControllers[title],
+                            onChanged: (text) {
+                              provider.setComment(title, text);
+                            },
+                            decoration: const InputDecoration(
+                              hintText: 'Комментарий/результат...',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                            ),
+                            maxLines: 2,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () {
+                  final completedCount = provider.items.values
+                      .where((v) => v == true)
+                      .length;
+                  final totalCount = provider.items.length;
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Сохранено! Выполнено $completedCount из $totalCount пунктов',
+                      ),
+                      backgroundColor: completedCount == totalCount
+                          ? Colors.green
+                          : Colors.blue,
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.save),
+                label: const Text('Сохранить результаты'),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Прогресс проверки ПНР',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Выполнено: ${provider.items.values.where((v) => v == true).length} из ${provider.items.length}',
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          Text(
+                            '${(provider.items.values.where((v) => v == true).length / provider.items.length * 100).round()}%',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(
+                        value:
+                            provider.items.values
+                                .where((v) => v == true)
+                                .length /
+                            provider.items.length,
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          Colors.blue,
+                        ),
+                        minHeight: 8,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+=== FILE: lib\screens\electrical_screen.dart ===
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/electrical_provider.dart';
+
+class ElectricalScreen extends StatefulWidget {
+  const ElectricalScreen({super.key});
+
+  @override
+  State<ElectricalScreen> createState() => _ElectricalScreenState();
+}
+
+class _ElectricalScreenState extends State<ElectricalScreen> {
+  final Map<String, TextEditingController> _commentControllers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    final provider = Provider.of<ElectricalProvider>(context, listen: false);
+    for (var key in provider.items.keys) {
+      _commentControllers[key] = TextEditingController(
+        text: provider.comments[key] ?? '',
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _commentControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ElectricalProvider>(
+      builder: (context, provider, child) {
+        return Scaffold(
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Проверка электромонтажа',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Проверьте соответствие подключения всех элементов согласно электрической схеме',
+                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ...provider.items.keys.map((title) {
+                final bool value = provider.items[title] ?? false;
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: value,
+                              onChanged: (newValue) {
+                                provider.toggleItem(title, newValue ?? false);
+                              },
+                            ),
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 40),
+                          child: TextField(
+                            controller: _commentControllers[title],
+                            onChanged: (text) {
+                              provider.setComment(title, text);
+                            },
+                            decoration: const InputDecoration(
+                              hintText: 'Комментарий...',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                            ),
+                            maxLines: 2,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () {
+                  final completedCount = provider.items.values
+                      .where((v) => v == true)
+                      .length;
+                  final totalCount = provider.items.length;
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Сохранено! Выполнено $completedCount из $totalCount пунктов',
+                      ),
+                      backgroundColor: completedCount == totalCount
+                          ? Colors.green
+                          : Colors.blue,
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.save),
+                label: const Text('Сохранить результаты'),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Прогресс проверки электромонтажа',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Выполнено: ${provider.items.values.where((v) => v == true).length} из ${provider.items.length}',
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          Text(
+                            '${(provider.items.values.where((v) => v == true).length / provider.items.length * 100).round()}%',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(
+                        value:
+                            provider.items.values
+                                .where((v) => v == true)
+                                .length /
+                            provider.items.length,
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          Colors.blue,
+                        ),
+                        minHeight: 8,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+=== FILE: lib\screens\home_screen.dart ===
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/checklist_provider.dart';
+import '../providers/photo_provider.dart';
+import 'project_settings_screen.dart';
+import 'categories_screen.dart';
+import 'electrical_screen.dart';
+import 'commissioning_screen.dart';
+import 'report_screen.dart'; // Убедитесь, что этот импорт есть
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _selectedIndex = 0;
+
+  final List<Widget> _screens = [
+    const CategoriesScreen(),
+    const ElectricalScreen(),
+    const CommissioningScreen(),
+    const ReportScreen(), // <-- Здесь ошибка, если ReportScreen не найден
+  ];
+
+  final List<String> _titles = [
+    'Проверка монтажа',
+    'Электромонтаж',
+    'ПНР',
+    'Отчет',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    await Provider.of<ChecklistProvider>(
+      context,
+      listen: false,
+    ).loadChecklist();
+    await Provider.of<PhotoProvider>(context, listen: false).loadPhotos();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_titles[_selectedIndex]),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ProjectSettingsScreen(),
+                ),
+              );
+            },
+            tooltip: 'Настройки проекта',
+          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
+        ],
+      ),
+      body: _screens[_selectedIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        currentIndex: _selectedIndex,
+        onTap: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Монтаж'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.electrical_services),
+            label: 'Электрика',
+          ),
+          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'ПНР'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.picture_as_pdf),
+            label: 'Отчет',
+          ),
+        ],
+      ),
+      floatingActionButton: _selectedIndex == 0
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                _showResetDialog();
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Сброс'),
+            )
+          : null,
+    );
+  }
+
+  void _showResetDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Сбросить данные?'),
+        content: const Text('Все данные проверки будут сброшены. Продолжить?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await Provider.of<ChecklistProvider>(
+                context,
+                listen: false,
+              ).resetAll();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Данные сброшены'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            child: const Text('Сбросить'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+=== FILE: lib\screens\project_settings_screen.dart ===
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/project_provider.dart';
+
+class ProjectSettingsScreen extends StatefulWidget {
+  const ProjectSettingsScreen({super.key});
+
+  @override
+  State<ProjectSettingsScreen> createState() => _ProjectSettingsScreenState();
+}
+
+class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final provider = Provider.of<ProjectProvider>(context, listen: false);
+    _controller.text = provider.projectName;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = Provider.of<ProjectProvider>(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      // Разрешаем изменение размера при появлении клавиатуры
+      resizeToAvoidBottomInset: true,
+      appBar: AppBar(
+        title: const Text('Настройки проекта'),
+        backgroundColor: Colors.blue[800],
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: isDark
+                ? [Colors.grey[900]!, Colors.grey[800]!]
+                : [Colors.grey[50]!, Colors.grey[200]!],
+          ),
+        ),
+        // Оборачиваем в SingleChildScrollView для прокрутки при клавиатуре
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 24,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                color: isDark ? Colors.grey[850] : Colors.white,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ===== ЗАГОЛОВОК С ИКОНКОЙ - ИСПРАВЛЕНО =====
+                      Row(
+                        children: [
+                          const Icon(Icons.business, color: Colors.blue),
+                          const SizedBox(width: 12),
+                          // Оборачиваем текст в Expanded чтобы не переполнялся
+                          Expanded(
+                            child: Text(
+                              'Название теплового пункта',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                              // Разрешаем перенос на новую строку
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 2,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Введите название проекта, которое будет отображаться в отчете',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _controller,
+                        style: TextStyle(
+                          fontSize: 18,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Название проекта',
+                          hintText: 'Например: ИТП №1',
+                          prefixIcon: const Icon(Icons.edit),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          filled: true,
+                          fillColor: isDark ? Colors.grey[800] : Colors.white,
+                        ),
+                        onChanged: (value) {
+                          // Обновляем предпросмотр
+                          setState(() {});
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      // ===== ПРЕДПРОСМОТР - ИСПРАВЛЕНО =====
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.grey[800] : Colors.blue[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isDark
+                                ? Colors.grey[700]!
+                                : Colors.blue[200]!,
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.preview,
+                              color: Colors.blue,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 12),
+                            // Оборачиваем в Expanded
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Предпросмотр в отчете:',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _controller.text.isNotEmpty
+                                        ? _controller.text
+                                        : 'ИТП №1',
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue,
+                                    ),
+                                    // Разрешаем перенос
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 2,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            if (_controller.text.trim().isNotEmpty) {
+                              provider.setProjectName(_controller.text.trim());
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    '✅ Название проекта сохранено: ${_controller.text.trim()}',
+                                  ),
+                                  backgroundColor: Colors.green,
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('⚠️ Введите название проекта'),
+                                  backgroundColor: Colors.orange,
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.save),
+                          label: const Text('Сохранить'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                color: isDark ? Colors.grey[850] : Colors.white,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.info_outline,
+                            color: Colors.blue,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          // Оборачиваем в Expanded
+                          Expanded(
+                            child: Text(
+                              'Информация',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Название проекта будет использоваться в шапке отчета и при отправке.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+=== FILE: lib\screens\report_screen.dart ===
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'dart:io';
+import 'package:flutter/services.dart';
+import '../providers/photo_provider.dart';
+import '../providers/checklist_provider.dart';
+import '../providers/report_provider.dart';
+import '../providers/electrical_provider.dart';
+import '../providers/commissioning_provider.dart';
+import '../providers/project_provider.dart';
+import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+class ReportScreen extends StatefulWidget {
+  const ReportScreen({super.key});
+
+  @override
+  State<ReportScreen> createState() => _ReportScreenState();
+}
+
+class _ReportScreenState extends State<ReportScreen> {
+  final TextEditingController _photoDescriptionController =
+      TextEditingController();
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<PhotoProvider>(context, listen: false).loadPhotos();
+    });
+  }
+
+  @override
+  void dispose() {
+    _photoDescriptionController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer3<ChecklistProvider, PhotoProvider, ReportProvider>(
+      builder: (context, checklistProvider, photoProvider, reportProvider, child) {
+        // Получаем название проекта
+        final projectProvider = Provider.of<ProjectProvider>(context);
+        final projectName = projectProvider.projectName;
+
+        return Column(
+          children: [
+            // Показываем название проекта
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.business, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Проект:',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        Text(
+                          projectName,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit, size: 20),
+                    onPressed: () {
+                      _showEditProjectNameDialog(context, projectProvider);
+                    },
+                    tooltip: 'Изменить название',
+                  ),
+                ],
+              ),
+            ),
+
+            // Кнопка генерации отчета
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: ElevatedButton.icon(
+                onPressed: reportProvider.isGenerating
+                    ? null
+                    : () {
+                        _generateReport(
+                          checklistProvider,
+                          photoProvider,
+                          reportProvider,
+                          context,
+                        );
+                      },
+                icon: reportProvider.isGenerating
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.picture_as_pdf),
+                label: Text(
+                  reportProvider.isGenerating
+                      ? 'Генерация...'
+                      : 'Сгенерировать отчет',
+                ),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                ),
+              ),
+            ),
+
+            // Статус отчета
+            if (reportProvider.currentReport != null)
+              Card(
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle, color: Colors.green),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '✅ Отчет сгенерирован',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                            Text(
+                              '📅 ${reportProvider.currentReport!.formattedDate}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            if (reportProvider.pdfFile != null)
+                              Text(
+                                '📄 Размер: ${(reportProvider.pdfFile!.lengthSync() / 1024).round()} KB',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.visibility),
+                        onPressed: () {
+                          _showReportPreview(reportProvider);
+                        },
+                      ),
+                      // Кнопка "Сохранить PDF"
+                      IconButton(
+                        icon: const Icon(Icons.save),
+                        onPressed: () async {
+                          try {
+                            await reportProvider.savePdf(
+                              projectName: projectName,
+                            );
+                            final path = reportProvider.pdfFile?.path ?? '';
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('✅ PDF сохранен: $path'),
+                                backgroundColor: Colors.green,
+                                duration: const Duration(seconds: 5),
+                              ),
+                            );
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('❌ Ошибка: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        },
+                        color: Colors.orange,
+                      ),
+                      // Кнопка "Поделиться PDF"
+                      IconButton(
+                        icon: const Icon(Icons.share),
+                        onPressed: () async {
+                          try {
+                            if (reportProvider.pdfFile == null) {
+                              await reportProvider.savePdf(
+                                projectName: projectName,
+                              );
+                            }
+                            await reportProvider.shareReport();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  '📤 Открыто окно для отправки PDF',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('❌ Ошибка: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        },
+                        color: Colors.blue,
+                      ),
+                      // Кнопка "Поделиться PDF + Фото"
+                      IconButton(
+                        icon: const Icon(Icons.share_outlined),
+                        onPressed: () async {
+                          try {
+                            if (reportProvider.pdfFile == null) {
+                              await reportProvider.savePdf(
+                                projectName: projectName,
+                              );
+                            }
+                            await reportProvider.shareReportWithPhotos(
+                              photoProvider.photos,
+                            );
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  '📤 Открыто окно для отправки PDF + фото',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('❌ Ошибка: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        },
+                        color: Colors.purple,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // Список фото
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  const Text(
+                    '📸 Фотоматериалы',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '(${photoProvider.photos.length})',
+                    style: const TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+
+            // Кнопки добавления фото
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _photoDescriptionController,
+                      decoration: const InputDecoration(
+                        hintText: '📝 Описание фото...',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    onPressed: () => _takePhoto(context, photoProvider),
+                    icon: const Icon(Icons.camera_alt),
+                    style: IconButton.styleFrom(backgroundColor: Colors.blue),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton.filled(
+                    onPressed: () => _pickFromGallery(context, photoProvider),
+                    icon: const Icon(Icons.photo_library),
+                    style: IconButton.styleFrom(backgroundColor: Colors.green),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Список фото
+            Expanded(
+              child: photoProvider.photos.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.photo_library,
+                            size: 64,
+                            color: Colors.grey,
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            'Нет добавленных фотографий',
+                            style: TextStyle(color: Colors.grey, fontSize: 16),
+                          ),
+                          Text(
+                            'Добавьте фото с камеры или из галереи',
+                            style: TextStyle(color: Colors.grey, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(8),
+                      itemCount: photoProvider.photos.length,
+                      itemBuilder: (context, index) {
+                        final photo = photoProvider.photos[index];
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 60,
+                                  height: 60,
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.photo,
+                                    color: Colors.blue,
+                                    size: 30,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        photo.description,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 14,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      // Имя файла (для справки)
+                                      Text(
+                                        '📄 ${photo.path.split('/').last}',
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.blue,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        DateFormat(
+                                          'dd.MM.yyyy HH:mm',
+                                        ).format(photo.createdAt),
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    color: Colors.red,
+                                  ),
+                                  onPressed: () {
+                                    _showDeleteDialog(
+                                      context,
+                                      photoProvider,
+                                      photo.id,
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ===== ДИАЛОГ РЕДАКТИРОВАНИЯ НАЗВАНИЯ ПРОЕКТА =====
+  void _showEditProjectNameDialog(
+    BuildContext context,
+    ProjectProvider provider,
+  ) {
+    final controller = TextEditingController(text: provider.projectName);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Название проекта'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Название теплового пункта',
+            hintText: 'Например: ИТП №1',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                provider.setProjectName(controller.text.trim());
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '✅ Название сохранено: ${controller.text.trim()}',
+                    ),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _takePhoto(
+    BuildContext context,
+    PhotoProvider photoProvider,
+  ) async {
+    try {
+      final status = await Permission.camera.request();
+      if (!status.isGranted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Необходимо разрешение на использование камеры'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      if (_photoDescriptionController.text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Введите описание фото'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (image != null) {
+        final file = File(image.path);
+        await photoProvider.addPhoto(file, _photoDescriptionController.text);
+        _photoDescriptionController.clear();
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Фото с камеры добавлено'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickFromGallery(
+    BuildContext context,
+    PhotoProvider photoProvider,
+  ) async {
+    try {
+      if (_photoDescriptionController.text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Введите описание фото'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (image != null) {
+        final file = File(image.path);
+        await photoProvider.addPhoto(file, _photoDescriptionController.text);
+        _photoDescriptionController.clear();
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Фото из галереи добавлено'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _showDeleteDialog(
+    BuildContext context,
+    PhotoProvider photoProvider,
+    String photoId,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удалить фото?'),
+        content: const Text('Это действие нельзя отменить.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              photoProvider.deletePhoto(photoId);
+            },
+            child: const Text('Удалить', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _generateReport(
+    ChecklistProvider checklistProvider,
+    PhotoProvider photoProvider,
+    ReportProvider reportProvider,
+    BuildContext context,
+  ) {
+    try {
+      final electricalProvider = Provider.of<ElectricalProvider>(
+        context,
+        listen: false,
+      );
+      final commissioningProvider = Provider.of<CommissioningProvider>(
+        context,
+        listen: false,
+      );
+
+      reportProvider.setElectricalComments(electricalProvider.comments);
+      reportProvider.setCommissioningComments(commissioningProvider.comments);
+
+      final checklistData = checklistProvider.itemsByCategory;
+      final photoPaths = photoProvider.photos.map((p) => p.path).toList();
+      final photoDescriptions = photoProvider.photos
+          .map((p) => p.description)
+          .toList();
+
+      final electricalItems = electricalProvider.items;
+      final commissioningItems = commissioningProvider.items;
+
+      final electricalDataForReport = {
+        'sensors': electricalItems['Датчики подключены согласно схеме'] == true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+        'relays': electricalItems['Реле подключены согласно схеме'] == true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+        'pumps': electricalItems['Насосы подключены согласно схеме'] == true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+        'actuators':
+            electricalItems['Привода подключены согласно схеме'] == true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+        'cableMarking':
+            electricalItems['Кабеля промаркированы согласно схеме'] == true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+        'cableTypes': electricalItems['Тип кабелей соответствует схеме'] == true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+      };
+
+      final commissioningDataForReport = {
+        'controllerProgram':
+            commissioningItems['Работоспособность программы в контроллере'] ==
+                true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+        'panelProgram':
+            commissioningItems['Работоспособность программы в панели'] == true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+        'cabinetAssembly':
+            commissioningItems['Правильность сборки шкафа согласно схемы'] ==
+                true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+        'electricalScheme':
+            commissioningItems['Правильность электросхемы'] == true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+        'componentsQuality':
+            commissioningItems['Отсутствие брака в компонентах'] == true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+        'regulationQuality':
+            commissioningItems['Качество регулирования'] == true
+            ? '✅ Выполнено'
+            : '❌ Не выполнено',
+      };
+
+      reportProvider.generateReport(
+        checklistItems: checklistData,
+        photoPaths: photoPaths,
+        photoDescriptions: photoDescriptions,
+        electricalData: electricalDataForReport,
+        commissioningData: commissioningDataForReport,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📄 Генерация отчета начата...'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    } catch (e) {
+      print('❌ Ошибка: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _showReportPreview(ReportProvider reportProvider) {
+    final reportText = reportProvider.reportText ?? 'Отчет пуст';
+    final projectProvider = Provider.of<ProjectProvider>(
+      context,
+      listen: false,
+    );
+    final projectName = projectProvider.projectName;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.picture_as_pdf, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('📄 Отчет'),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 450,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '📅 ${reportProvider.currentReport?.formattedDate ?? ''}',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                Text(
+                  '🏢 $projectName',
+                  style: const TextStyle(fontSize: 12, color: Colors.blue),
+                ),
+                const SizedBox(height: 8),
+                const Divider(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Text(
+                        reportText,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                          height: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Закрыть'),
+            ),
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: reportText));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('📋 Текст отчета скопирован в буфер обмена'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              },
+              child: const Text('📋 Копировать текст'),
+            ),
+            TextButton(
+              onPressed: () async {
+                try {
+                  Navigator.pop(context);
+                  if (reportProvider.pdfFile == null) {
+                    await reportProvider.savePdf(projectName: projectName);
+                  }
+                  await reportProvider.shareReport();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('📤 Открыто окно для отправки PDF'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Ошибка: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              child: const Text('📤 Поделиться PDF'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _shareWithPhotos(reportProvider);
+              },
+              child: const Text('📸 PDF + фото'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _shareWithPhotos(ReportProvider reportProvider) async {
+    try {
+      final photoProvider = Provider.of<PhotoProvider>(context, listen: false);
+      final projectProvider = Provider.of<ProjectProvider>(
+        context,
+        listen: false,
+      );
+
+      if (reportProvider.pdfFile == null) {
+        await reportProvider.savePdf(projectName: projectProvider.projectName);
+      }
+
+      await reportProvider.shareReportWithPhotos(photoProvider.photos);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📤 Открыто окно для отправки PDF + фото'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+}
+
+
+=== FILE: lib\services\database_service.dart ===
+
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/check_item.dart';
+import '../models/photo_record.dart';
+import '../utils/constants.dart';
+
+class DatabaseService {
+  static final DatabaseService _instance = DatabaseService._internal();
+  factory DatabaseService() => _instance;
+  DatabaseService._internal();
+
+  static const String _checklistKey = 'checklist_items';
+  static const String _photosKey = 'photos';
+
+  late SharedPreferences _prefs;
+  bool _isInitialized = false;
+
+  Future<void> initDatabase() async {
+    if (_isInitialized) return;
+    _prefs = await SharedPreferences.getInstance();
+    _isInitialized = true;
+
+    // Проверяем версию данных
+    final currentVersion = _prefs.getString('checklist_version') ?? '0';
+    final newVersion = '2.0'; // Новая версия с полным списком
+
+    // Если версия не совпадает - пересоздаем данные
+    if (currentVersion != newVersion) {
+      print(
+        '🔄 Обновление данных чек-листа с версии $currentVersion до $newVersion',
+      );
+      await _initChecklistData(force: true);
+      await _prefs.setString('checklist_version', newVersion);
+    } else if (!_prefs.containsKey(_checklistKey)) {
+      await _initChecklistData();
+    }
+  }
+
+  Future<void> _initChecklistData({bool force = false}) async {
+    if (force) {
+      // Удаляем старые данные
+      await _prefs.remove(_checklistKey);
+    }
+
+    // Получаем данные из Constants
+    final items = Constants.checklistData;
+    final itemsJson = items.map((item) => item.toMap()).toList();
+    await _prefs.setString(_checklistKey, jsonEncode(itemsJson));
+
+    print('✅ Инициализировано ${items.length} пунктов чек-листа');
+  }
+
+  Future<Map<String, List<CheckItem>>> getChecklistItems() async {
+    if (!_isInitialized) await initDatabase();
+
+    final String? itemsJson = _prefs.getString(_checklistKey);
+    if (itemsJson == null) return {};
+
+    final List<dynamic> itemsList = jsonDecode(itemsJson);
+    final List<CheckItem> items = itemsList
+        .map((item) => CheckItem.fromMap(item as Map<String, dynamic>))
+        .toList();
+
+    Map<String, List<CheckItem>> result = {};
+    for (var item in items) {
+      if (!result.containsKey(item.category)) {
+        result[item.category] = [];
+      }
+      result[item.category]!.add(item);
+    }
+    return result;
+  }
+
+  Future<void> updateChecklistItem(CheckItem updatedItem) async {
+    if (!_isInitialized) await initDatabase();
+
+    final String? itemsJson = _prefs.getString(_checklistKey);
+    if (itemsJson == null) return;
+
+    final List<dynamic> itemsList = jsonDecode(itemsJson);
+    final List<Map<String, dynamic>> updatedList = [];
+
+    for (var item in itemsList) {
+      final Map<String, dynamic> map = item as Map<String, dynamic>;
+      if (map['id'] == updatedItem.id) {
+        updatedList.add(updatedItem.toMap());
+      } else {
+        updatedList.add(map);
+      }
+    }
+
+    await _prefs.setString(_checklistKey, jsonEncode(updatedList));
+  }
+
+  Future<void> savePhoto(PhotoRecord photo) async {
+    if (!_isInitialized) await initDatabase();
+
+    final String? photosJson = _prefs.getString(_photosKey);
+    List<Map<String, dynamic>> photosList = [];
+    if (photosJson != null) {
+      photosList = List<Map<String, dynamic>>.from(jsonDecode(photosJson));
+    }
+    photosList.add(photo.toMap());
+    await _prefs.setString(_photosKey, jsonEncode(photosList));
+  }
+
+  Future<List<PhotoRecord>> getPhotos() async {
+    if (!_isInitialized) await initDatabase();
+
+    final String? photosJson = _prefs.getString(_photosKey);
+    if (photosJson == null) return [];
+
+    final List<dynamic> photosList = jsonDecode(photosJson);
+    return photosList
+        .map((photo) => PhotoRecord.fromMap(photo as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> deletePhoto(String id) async {
+    if (!_isInitialized) await initDatabase();
+
+    final String? photosJson = _prefs.getString(_photosKey);
+    if (photosJson == null) return;
+
+    final List<dynamic> photosList = jsonDecode(photosJson);
+    final List<Map<String, dynamic>> updatedList = [];
+
+    for (var photo in photosList) {
+      final Map<String, dynamic> map = photo as Map<String, dynamic>;
+      if (map['id'] != id) {
+        updatedList.add(map);
+      }
+    }
+    await _prefs.setString(_photosKey, jsonEncode(updatedList));
+  }
+
+  Future<void> resetAllData() async {
+    if (!_isInitialized) await initDatabase();
+    await _prefs.remove(_checklistKey);
+    await _prefs.remove(_photosKey);
+    await _prefs.remove('checklist_version');
+    await _initChecklistData();
+  }
+}
+
+
+=== FILE: lib\services\docx_service.dart ===
+
+import 'dart:io';
+import 'dart:convert';
+import 'package:intl/intl.dart';
+import '../models/report.dart';
+
+class DocxService {
+  // Генерация RTF файла (открывается в Word)
+  Future<File> generateRtf(ReportData report) async {
+    final content = _generateRtfContent(report);
+
+    // Используем системную временную директорию
+    final tempDir = Directory.systemTemp;
+    final file = File('${tempDir.path}/report_${report.id}.rtf');
+    await file.writeAsString(content, encoding: utf8);
+
+    return file;
+  }
+
+  String _generateRtfContent(ReportData report) {
+    final buffer = StringBuffer();
+    final now = DateTime.now();
+    final dateFormat = DateFormat('dd.MM.yyyy');
+    final timeFormat = DateFormat('HH:mm');
+    final fullFormat = DateFormat('dd.MM.yyyy HH:mm');
+
+    // RTF заголовок
+    buffer.writeln(r'{\rtf1\ansi\deff0');
+    buffer.writeln(r'{\fonttbl{\f0\fnil\fcharset204 Arial;}}');
+    buffer.writeln(r'\viewkind4\uc1\pard\lang1049\f0\fs24');
+
+    // Заголовок
+    buffer.writeln(r'\pard\qc\b\fs36 АКТ ПРОВЕРКИ\b0\fs24\par');
+    buffer.writeln(r'\pard\qc\b\fs32 БЛОЧНОГО ТЕПЛОВОГО ПУНКТА\b0\fs24\par');
+    buffer.writeln(r'\par');
+    buffer.writeln('\\pard\\qc Дата проверки: ${dateFormat.format(now)}\\par');
+    buffer.writeln('\\pard\\qc Время: ${timeFormat.format(now)}\\par');
+    buffer.writeln(r'\par');
+    buffer.writeln(r'\pard\qc \b1. ПРОВЕРКА ПОСЛЕ МОНТАЖА\b0\par');
+    buffer.writeln(r'\par');
+
+    // Чеклист
+    final checklist =
+        report.data['checklistItems']
+            as Map<String, List<Map<String, dynamic>>>?;
+    if (checklist != null) {
+      int totalChecked = 0;
+      int totalItems = 0;
+
+      for (var entry in checklist.entries) {
+        buffer.writeln('\\pard\\b ${entry.key}\\b0\\par');
+
+        for (var item in entry.value) {
+          final isChecked = item['isChecked'] ?? false;
+          final title = item['title'] ?? '';
+          final comment = item['comment'] ?? '';
+          totalChecked += isChecked ? 1 : 0;
+          totalItems += 1;
+
+          final status = isChecked ? '[+]' : '[-]';
+          buffer.writeln('\\pard\\fs20 $status $title\\par');
+
+          if (comment.isNotEmpty) {
+            buffer.writeln('\\pard\\fs18\\i Комментарий: $comment\\i0\\par');
+          }
+        }
+        buffer.writeln(r'\par');
+      }
+
+      buffer.writeln(
+        '\\pard\\b Итого: $totalChecked из $totalItems проверено\\b0\\par',
+      );
+    }
+
+    buffer.writeln(r'\par');
+    buffer.writeln(r'\pard\qc \b2. ПРОВЕРКА ЭЛЕКТРОМОНТАЖА\b0\par');
+    buffer.writeln(r'\par');
+
+    // Электромонтаж
+    final electrical = report.data['electricalData'] as Map<String, dynamic>?;
+    if (electrical != null) {
+      final sensors = electrical['sensors'] ?? 'Не проверено';
+      final relays = electrical['relays'] ?? 'Не проверено';
+      final pumps = electrical['pumps'] ?? 'Не проверено';
+      final actuators = electrical['actuators'] ?? 'Не проверено';
+      final cableMarking = electrical['cableMarking'] ?? 'Не проверено';
+      final cableTypes = electrical['cableTypes'] ?? 'Не проверено';
+
+      buffer.writeln(
+        '\\pard • Соответствие подключения датчиков: $sensors\\par',
+      );
+      buffer.writeln('\\pard • Соответствие подключения реле: $relays\\par');
+      buffer.writeln('\\pard • Соответствие подключения насосов: $pumps\\par');
+      buffer.writeln(
+        '\\pard • Соответствие подключения приводов: $actuators\\par',
+      );
+      buffer.writeln('\\pard • Маркировка кабелей: $cableMarking\\par');
+      buffer.writeln('\\pard • Соответствие типов кабелей: $cableTypes\\par');
+    }
+
+    buffer.writeln(r'\par');
+    buffer.writeln(r'\pard\qc \b3. РЕЗУЛЬТАТЫ ПНР\b0\par');
+    buffer.writeln(r'\par');
+
+    // ПНР
+    final commissioning =
+        report.data['commissioningData'] as Map<String, dynamic>?;
+    if (commissioning != null) {
+      final controllerProgram =
+          commissioning['controllerProgram'] ?? 'Не проверено';
+      final panelProgram = commissioning['panelProgram'] ?? 'Не проверено';
+      final cabinetAssembly =
+          commissioning['cabinetAssembly'] ?? 'Не проверено';
+      final electricalScheme =
+          commissioning['electricalScheme'] ?? 'Не проверено';
+      final componentsQuality =
+          commissioning['componentsQuality'] ?? 'Не проверено';
+      final regulationQuality =
+          commissioning['regulationQuality'] ?? 'Не проверено';
+
+      buffer.writeln(
+        '\\pard • Работоспособность программы в контроллере: $controllerProgram\\par',
+      );
+      buffer.writeln(
+        '\\pard • Работоспособность программы в панели: $panelProgram\\par',
+      );
+      buffer.writeln(
+        '\\pard • Правильность сборки шкафа: $cabinetAssembly\\par',
+      );
+      buffer.writeln(
+        '\\pard • Правильность электросхемы: $electricalScheme\\par',
+      );
+      buffer.writeln(
+        '\\pard • Отсутствие брака в компонентах: $componentsQuality\\par',
+      );
+      buffer.writeln(
+        '\\pard • Качество регулирования: $regulationQuality\\par',
+      );
+    }
+
+    buffer.writeln(r'\par');
+    buffer.writeln(r'\pard\qc \b4. ФОТОМАТЕРИАЛЫ\b0\par');
+    buffer.writeln(r'\par');
+
+    final photos = report.data['photoPaths'] as List<String>?;
+    if (photos == null || photos.isEmpty) {
+      buffer.writeln(r'\pard Фотографии не прикреплены\par');
+    } else {
+      buffer.writeln('\\pard Добавлено фотографий: ${photos.length}\\par');
+      for (var i = 0; i < photos.length; i++) {
+        final fileName = photos[i].split('/').last;
+        buffer.writeln('\\pard ${i + 1}. $fileName\\par');
+      }
+    }
+
+    buffer.writeln(r'\par');
+    buffer.writeln(r'\pard\qc\b КОНЕЦ ОТЧЕТА\b0\par');
+    buffer.writeln(
+      '\\pard\\qc\\fs18 Отчет сгенерирован автоматически ${fullFormat.format(now)}\\par',
+    );
+
+    // Закрытие RTF
+    buffer.writeln('}');
+
+    return buffer.toString();
+  }
+}
+
+
+=== FILE: lib\services\pdf_service.dart ===
+
+import 'dart:io';
+import 'dart:convert';
+import 'package:intl/intl.dart';
+import '../models/report.dart';
+
+class PdfService {
+  // Генерация PDF файла (текстовый формат, открывается как PDF)
+  Future<File> generatePdf(ReportData report) async {
+    final content = _generatePdfContent(report);
+
+    // Используем системную временную директорию
+    final tempDir = Directory.systemTemp;
+    final file = File('${tempDir.path}/report_${report.id}.pdf');
+    await file.writeAsString(content, encoding: utf8);
+
+    return file;
+  }
+
+  String _generatePdfContent(ReportData report) {
+    final buffer = StringBuffer();
+    final now = DateTime.now();
+    final dateFormat = DateFormat('dd.MM.yyyy HH:mm');
+
+    buffer.writeln('%PDF-1.4');
+    buffer.writeln('1 0 obj');
+    buffer.writeln('<< /Type /Catalog /Pages 2 0 R >>');
+    buffer.writeln('endobj');
+    buffer.writeln('2 0 obj');
+    buffer.writeln('<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+    buffer.writeln('endobj');
+    buffer.writeln('3 0 obj');
+    buffer.writeln(
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>',
+    );
+    buffer.writeln('endobj');
+    buffer.writeln('4 0 obj');
+    buffer.writeln('<< /Length 1000 >>');
+    buffer.writeln('stream');
+    buffer.writeln('BT /F1 24 Tf 100 700 Td (АКТ ПРОВЕРКИ) Tj ET');
+    buffer.writeln('BT /F1 18 Tf 80 670 Td (БЛОЧНОГО ТЕПЛОВОГО ПУНКТА) Tj ET');
+    buffer.writeln(
+      'BT /F1 12 Tf 50 630 Td (Дата проверки: ${dateFormat.format(now)}) Tj ET',
+    );
+    buffer.writeln(
+      'BT /F1 12 Tf 50 600 Td (==================================================) Tj ET',
+    );
+    buffer.writeln('endstream');
+    buffer.writeln('endobj');
+    buffer.writeln('xref');
+    buffer.writeln('0 5');
+    buffer.writeln('0000000000 65535 f');
+    buffer.writeln('0000000010 00000 n');
+    buffer.writeln('0000000050 00000 n');
+    buffer.writeln('0000000100 00000 n');
+    buffer.writeln('0000000200 00000 n');
+    buffer.writeln('trailer');
+    buffer.writeln('<< /Size 5 /Root 1 0 R >>');
+    buffer.writeln('startxref');
+    buffer.writeln('500');
+    buffer.writeln('%%EOF');
+
+    return buffer.toString();
+  }
+}
+
+
+=== FILE: lib\services\photo_service.dart ===
+
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import '../models/photo_record.dart';
+import 'database_service.dart';
+
+class PhotoService {
+  final ImagePicker _picker = ImagePicker();
+  final DatabaseService _db = DatabaseService();
+
+  Future<File?> takePhoto() async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (image != null) {
+        return File(image.path);
+      }
+    } catch (e) {
+      print('Ошибка при съемке: $e');
+    }
+    return null;
+  }
+
+  Future<File?> pickFromGallery() async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+
+      if (image != null) {
+        return File(image.path);
+      }
+    } catch (e) {
+      print('Ошибка при выборе фото: $e');
+    }
+    return null;
+  }
+
+  // ========== ГЛАВНОЕ: имя файла = только название пользователя ==========
+  Future<PhotoRecord> savePhoto(File imageFile, String description) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final id = 'photo_$timestamp';
+
+    // Формируем имя файла из описания
+    String safeName = _sanitizeFileName(description);
+
+    // Если описание пустое
+    if (safeName.isEmpty) {
+      safeName = 'photo';
+    }
+
+    // Определяем директорию для сохранения
+    String appDirPath;
+    try {
+      final picturesDir = Directory('/storage/emulated/0/Pictures');
+      if (await picturesDir.exists()) {
+        appDirPath = '${picturesDir.path}/thermal_checkup';
+      } else {
+        final downloadsDir = Directory('/storage/emulated/0/Download');
+        if (await downloadsDir.exists()) {
+          appDirPath = '${downloadsDir.path}/thermal_checkup';
+        } else {
+          appDirPath = '/data/user/0/com.example.thermal_checkup/cache';
+        }
+      }
+
+      final appDir = Directory(appDirPath);
+      if (!await appDir.exists()) {
+        await appDir.create(recursive: true);
+      }
+    } catch (e) {
+      appDirPath = '/data/user/0/com.example.thermal_checkup/cache';
+    }
+
+    // ===== УМНАЯ НУМЕРАЦИЯ: если файл существует, добавляем (1), (2) и т.д. =====
+    String fileName = '$safeName.jpg';
+    String savedPath = '$appDirPath/$fileName';
+    int counter = 1;
+
+    while (await File(savedPath).exists()) {
+      fileName = '$safeName($counter).jpg';
+      savedPath = '$appDirPath/$fileName';
+      counter++;
+    }
+
+    // Копируем файл
+    try {
+      await imageFile.copy(savedPath);
+      print('✅ Фото сохранено: $savedPath');
+    } catch (e) {
+      savedPath = imageFile.path;
+      print('⚠️ Не удалось скопировать файл: $e');
+    }
+
+    final photo = PhotoRecord(
+      id: id,
+      path: savedPath,
+      description: description,
+      createdAt: DateTime.now(),
+    );
+
+    await _db.savePhoto(photo);
+
+    return photo;
+  }
+
+  // Очищаем имя файла от недопустимых символов
+  String _sanitizeFileName(String name) {
+    return name
+        .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_') // Запрещенные символы
+        .replaceAll(RegExp(r'\s+'), '_') // Пробелы на _
+        .replaceAll(
+          RegExp(r'[^\w\u0400-\u04FF\-\.\(\)]'),
+          '',
+        ) // Оставляем буквы, цифры, дефис, точку, кириллицу, скобки
+        .trim();
+  }
+
+  Future<List<PhotoRecord>> loadPhotos() async {
+    return await _db.getPhotos();
+  }
+
+  Future<void> deletePhoto(String id) async {
+    final photos = await _db.getPhotos();
+    final photo = photos.firstWhere(
+      (p) => p.id == id,
+      orElse: () => throw Exception('Фото не найдено'),
+    );
+
+    try {
+      final file = File(photo.path);
+      if (await file.exists()) {
+        await file.delete();
+        print('🗑️ Файл удален: ${photo.path}');
+      }
+    } catch (e) {
+      print('⚠️ Ошибка при удалении файла: $e');
+    }
+
+    await _db.deletePhoto(id);
+  }
+}
+
+
+=== FILE: lib\services\report_service.dart ===
+
+import 'dart:io';
+import 'package:flutter/services.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:intl/intl.dart';
+import '../models/report.dart';
+import '../models/check_item.dart';
+
+class ReportService {
+  // ========== ГЕНЕРАЦИЯ ТЕКСТА ==========
+  Future<ReportData> generateReport({
+    required Map<String, List> checklistItems,
+    required List<String> photoPaths,
+    required List<String> photoDescriptions,
+    required Map<String, dynamic> electricalData,
+    required Map<String, dynamic> commissioningData,
+  }) async {
+    final id = 'report_${DateTime.now().millisecondsSinceEpoch}';
+    final data = {
+      'generatedAt': DateTime.now().toIso8601String(),
+      'checklistItems': _serializeChecklist(checklistItems),
+      'photoPaths': photoPaths,
+      'photoDescriptions': photoDescriptions,
+      'electricalData': electricalData,
+      'commissioningData': commissioningData,
+    };
+
+    final reportText = _generateReportText(data);
+
+    return ReportData(
+      id: id,
+      generatedAt: DateTime.now(),
+      data: data,
+      pdfPath: '',
+      reportText: reportText,
+    );
+  }
+
+  Map<String, List<Map<String, dynamic>>> _serializeChecklist(
+    Map<String, List> checklistItems,
+  ) {
+    final result = <String, List<Map<String, dynamic>>>{};
+
+    for (var entry in checklistItems.entries) {
+      final items = <Map<String, dynamic>>[];
+      for (var item in entry.value) {
+        if (item is CheckItem) {
+          items.add({
+            'id': item.id,
+            'title': item.title,
+            'description': item.description,
+            'isChecked': item.isChecked,
+            'comment': item.comment,
+            'orderIndex': item.orderIndex,
+          });
+        } else if (item is Map) {
+          items.add(item.cast<String, dynamic>());
+        }
+      }
+      result[entry.key] = items;
+    }
+    return result;
+  }
+
+  String _generateReportText(Map<String, dynamic> data) {
+    final buffer = StringBuffer();
+    final now = DateTime.now();
+    final dateFormat = DateFormat('dd.MM.yyyy');
+    final timeFormat = DateFormat('HH:mm');
+    final fullFormat = DateFormat('dd.MM.yyyy HH:mm');
+
+    buffer.writeln('АКТ ПРОВЕРКИ БЛОЧНОГО ТЕПЛОВОГО ПУНКТА');
+    buffer.writeln('=' * 50);
+    buffer.writeln();
+    buffer.writeln('Дата проверки: ${dateFormat.format(now)}');
+    buffer.writeln('Время: ${timeFormat.format(now)}');
+    buffer.writeln();
+    buffer.writeln('-' * 50);
+
+    // 1. Проверка после монтажа
+    buffer.writeln();
+    buffer.writeln('1. ПРОВЕРКА ПОСЛЕ МОНТАЖА');
+    buffer.writeln('-' * 40);
+
+    final checklist =
+        data['checklistItems'] as Map<String, List<Map<String, dynamic>>>?;
+    if (checklist != null && checklist.isNotEmpty) {
+      int totalChecked = 0;
+      int totalItems = 0;
+
+      for (var entry in checklist.entries) {
+        buffer.writeln();
+        buffer.writeln('  ${entry.key}:');
+        for (var item in entry.value) {
+          final isChecked = item['isChecked'] ?? false;
+          final title = item['title'] ?? '';
+          final comment = item['comment'] ?? '';
+          totalChecked += isChecked ? 1 : 0;
+          totalItems += 1;
+          buffer.writeln('    ${isChecked ? '[+]' : '[-]'} $title');
+          if (comment.isNotEmpty) {
+            buffer.writeln('      Комментарий: $comment');
+          }
+        }
+      }
+
+      buffer.writeln();
+      buffer.writeln('Итого: $totalChecked из $totalItems проверено');
+    } else {
+      buffer.writeln('  Нет данных по проверке монтажа');
+    }
+
+    // 2. Проверка электромонтажа
+    buffer.writeln();
+    buffer.writeln('-' * 60);
+    buffer.writeln('2. ПРОВЕРКА ЭЛЕКТРОМОНТАЖА');
+    buffer.writeln('-' * 40);
+
+    final electrical = data['electricalData'] as Map<String, dynamic>?;
+    final electricalComments =
+        electrical?['comments'] as Map<String, String>? ?? {};
+
+    if (electrical != null) {
+      buffer.writeln(
+        '  • Соответствие подключения датчиков: ${electrical['sensors'] ?? 'Не проверено'}',
+      );
+      if (electricalComments['Датчики подключены согласно схеме']?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${electricalComments['Датчики подключены согласно схеме']}',
+        );
+      }
+
+      buffer.writeln(
+        '  • Соответствие подключения реле: ${electrical['relays'] ?? 'Не проверено'}',
+      );
+      if (electricalComments['Реле подключены согласно схеме']?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${electricalComments['Реле подключены согласно схеме']}',
+        );
+      }
+
+      buffer.writeln(
+        '  • Соответствие подключения насосов: ${electrical['pumps'] ?? 'Не проверено'}',
+      );
+      if (electricalComments['Насосы подключены согласно схеме']?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${electricalComments['Насосы подключены согласно схеме']}',
+        );
+      }
+
+      buffer.writeln(
+        '  • Соответствие подключения приводов: ${electrical['actuators'] ?? 'Не проверено'}',
+      );
+      if (electricalComments['Привода подключены согласно схеме']?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${electricalComments['Привода подключены согласно схеме']}',
+        );
+      }
+
+      buffer.writeln(
+        '  • Маркировка кабелей: ${electrical['cableMarking'] ?? 'Не проверено'}',
+      );
+      if (electricalComments['Кабеля промаркированы согласно схеме']
+              ?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${electricalComments['Кабеля промаркированы согласно схеме']}',
+        );
+      }
+
+      buffer.writeln(
+        '  • Соответствие типов кабелей: ${electrical['cableTypes'] ?? 'Не проверено'}',
+      );
+      if (electricalComments['Тип кабелей соответствует схеме']?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${electricalComments['Тип кабелей соответствует схеме']}',
+        );
+      }
+    }
+
+    // 3. Результаты ПНР
+    buffer.writeln();
+    buffer.writeln('-' * 60);
+    buffer.writeln('3. РЕЗУЛЬТАТЫ ПНР');
+    buffer.writeln('-' * 40);
+
+    final commissioning = data['commissioningData'] as Map<String, dynamic>?;
+    final commissioningComments =
+        commissioning?['comments'] as Map<String, String>? ?? {};
+
+    if (commissioning != null) {
+      buffer.writeln(
+        '  • Работоспособность программы в контроллере: ${commissioning['controllerProgram'] ?? 'Не проверено'}',
+      );
+      if (commissioningComments['Работоспособность программы в контроллере']
+              ?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${commissioningComments['Работоспособность программы в контроллере']}',
+        );
+      }
+
+      buffer.writeln(
+        '  • Работоспособность программы в панели: ${commissioning['panelProgram'] ?? 'Не проверено'}',
+      );
+      if (commissioningComments['Работоспособность программы в панели']
+              ?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${commissioningComments['Работоспособность программы в панели']}',
+        );
+      }
+
+      buffer.writeln(
+        '  • Правильность сборки шкафа: ${commissioning['cabinetAssembly'] ?? 'Не проверено'}',
+      );
+      if (commissioningComments['Правильность сборки шкафа согласно схемы']
+              ?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${commissioningComments['Правильность сборки шкафа согласно схемы']}',
+        );
+      }
+
+      buffer.writeln(
+        '  • Правильность электросхемы: ${commissioning['electricalScheme'] ?? 'Не проверено'}',
+      );
+      if (commissioningComments['Правильность электросхемы']?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${commissioningComments['Правильность электросхемы']}',
+        );
+      }
+
+      buffer.writeln(
+        '  • Отсутствие брака в компонентах: ${commissioning['componentsQuality'] ?? 'Не проверено'}',
+      );
+      if (commissioningComments['Отсутствие брака в компонентах']?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${commissioningComments['Отсутствие брака в компонентах']}',
+        );
+      }
+
+      buffer.writeln(
+        '  • Качество регулирования: ${commissioning['regulationQuality'] ?? 'Не проверено'}',
+      );
+      if (commissioningComments['Качество регулирования']?.isNotEmpty ??
+          false) {
+        buffer.writeln(
+          '      Комментарий: ${commissioningComments['Качество регулирования']}',
+        );
+      }
+    }
+    // 4. Фотоматериалы
+    buffer.writeln();
+    buffer.writeln('-' * 50);
+    buffer.writeln('4. ФОТОМАТЕРИАЛЫ');
+    buffer.writeln('-' * 40);
+
+    final photoPaths = data['photoPaths'] as List<String>?;
+    final photoDescriptions = data['photoDescriptions'] as List<String>? ?? [];
+
+    if (photoPaths == null || photoPaths.isEmpty) {
+      buffer.writeln('  Фотографии не прикреплены');
+    } else {
+      buffer.writeln('  Добавлено фотографий: ${photoPaths.length}');
+      for (var i = 0; i < photoPaths.length; i++) {
+        final description =
+            (photoDescriptions.isNotEmpty && i < photoDescriptions.length)
+            ? photoDescriptions[i]
+            : photoPaths[i].split('/').last;
+        buffer.writeln('    ${i + 1}. $description');
+      }
+    }
+
+    buffer.writeln();
+    buffer.writeln('=' * 50);
+    buffer.writeln('КОНЕЦ ОТЧЕТА');
+    buffer.writeln('=' * 50);
+    buffer.writeln();
+    buffer.writeln('Отчет сгенерирован автоматически');
+    buffer.writeln('Время генерации: ${fullFormat.format(now)}');
+
+    return buffer.toString();
+  }
+
+  // ========== ГЕНЕРАЦИЯ PDF ==========
+  pw.Font? _font;
+
+  Future<void> _loadFont() async {
+    if (_font != null) return;
+    try {
+      final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+      _font = pw.Font.ttf(fontData);
+      print('✅ Шрифт Roboto загружен');
+    } catch (e) {
+      print('⚠️ Ошибка загрузки шрифта: $e');
+      _font = pw.Font.helvetica();
+    }
+  }
+
+  Future<File> generateAndSavePdf({
+    required String projectName,
+    required DateTime reportTime,
+    required String reportText,
+  }) async {
+    print('📄 Генерация PDF отчета...');
+
+    await _loadFont();
+    final font = _font ?? pw.Font.helvetica();
+
+    final pdf = pw.Document();
+
+    // Очищаем текст - убираем все лишние символы
+    String cleanText = reportText;
+    // Убираем эмодзи и спецсимволы
+    cleanText = cleanText.replaceAll('✅', '[+]');
+    cleanText = cleanText.replaceAll('❌', '[-]');
+    cleanText = cleanText.replaceAll('📅', '');
+    cleanText = cleanText.replaceAll('⏰', '');
+    cleanText = cleanText.replaceAll('📂', '');
+    cleanText = cleanText.replaceAll('💬', '');
+    cleanText = cleanText.replaceAll('📊', '');
+    cleanText = cleanText.replaceAll('⚡', '•');
+    cleanText = cleanText.replaceAll('🔧', '•');
+    cleanText = cleanText.replaceAll('📷', '');
+
+    final lines = cleanText.split('\n');
+
+    // Разбиваем текст на страницы
+    final pages = _splitTextIntoPages(lines, font);
+
+    // Добавляем каждую страницу
+    for (int pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+      final pageLines = pages[pageIndex];
+      final isFirstPage = pageIndex == 0;
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            return _buildPage(
+              lines: pageLines,
+              projectName: projectName,
+              reportTime: reportTime,
+              font: font,
+              isFirstPage: isFirstPage,
+              pageNumber: pageIndex + 1,
+              totalPages: pages.length,
+            );
+          },
+        ),
+      );
+    }
+
+    final dateStr = DateFormat('yyyy-MM-dd_HH-mm').format(reportTime);
+    final filename = 'Отчет_ИТП_$dateStr.pdf';
+
+    // Сохраняем в Downloads
+    String savePath;
+    try {
+      final downloadsDir = Directory('/storage/emulated/0/Download');
+      if (await downloadsDir.exists()) {
+        savePath = '${downloadsDir.path}/$filename';
+      } else {
+        final documentsDir = Directory('/storage/emulated/0/Documents');
+        if (await documentsDir.exists()) {
+          savePath = '${documentsDir.path}/$filename';
+        } else {
+          savePath = '/storage/emulated/0/$filename';
+        }
+      }
+    } catch (e) {
+      final tempDir = Directory.systemTemp;
+      savePath = '${tempDir.path}/$filename';
+      print('⚠️ Использую временную директорию: $savePath');
+    }
+
+    final file = File(savePath);
+    await file.writeAsBytes(await pdf.save());
+
+    print('✅ PDF сохранен: $savePath (${pages.length} страниц)');
+    return file;
+  }
+
+  List<List<String>> _splitTextIntoPages(List<String> allLines, pw.Font font) {
+    final pages = <List<String>>[];
+    List<String> currentPage = [];
+    double currentHeight = 0;
+    const double maxHeight = 750;
+
+    // Начальная высота (заголовок)
+    currentHeight = 100;
+
+    for (final line in allLines) {
+      if (line.trim().isEmpty && currentPage.isEmpty) {
+        continue;
+      }
+
+      // Одинаковая высота для всех строк
+      double lineHeight = 18;
+
+      // Если это заголовок - чуть больше
+      if (line.contains('АКТ') ||
+          line.contains('ПРОВЕРКА') ||
+          line.contains('РЕЗУЛЬТАТЫ') ||
+          line.contains('КОНЕЦ') ||
+          line.contains('1.') ||
+          line.contains('2.') ||
+          line.contains('3.') ||
+          line.contains('4.') ||
+          line.contains('Итого:')) {
+        lineHeight = 22;
+      }
+
+      // Если это разделитель
+      if (line.contains('=') || line.contains('-')) {
+        lineHeight = 12;
+      }
+
+      // Если это пустая строка
+      if (line.trim().isEmpty) {
+        lineHeight = 8;
+      }
+
+      if (currentHeight + lineHeight > maxHeight) {
+        if (currentPage.isNotEmpty) {
+          pages.add(List.from(currentPage));
+          currentPage = [];
+          currentHeight = 20;
+        }
+      }
+
+      currentPage.add(line);
+      currentHeight += lineHeight;
+    }
+
+    if (currentPage.isNotEmpty) {
+      pages.add(currentPage);
+    }
+
+    if (pages.isEmpty) {
+      pages.add([]);
+    }
+
+    return pages;
+  }
+
+  pw.Widget _buildPage({
+    required List<String> lines,
+    required String projectName,
+    required DateTime reportTime,
+    required pw.Font font,
+    required bool isFirstPage,
+    required int pageNumber,
+    required int totalPages,
+  }) {
+    final children = <pw.Widget>[];
+
+    if (isFirstPage) {
+      children.add(
+        pw.Container(
+          padding: const pw.EdgeInsets.all(16),
+          color: PdfColors.blue,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'АКТ ПРОВЕРКИ',
+                style: pw.TextStyle(
+                  fontSize: 24,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                  font: font,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'БЛОЧНОГО ТЕПЛОВОГО ПУНКТА',
+                style: pw.TextStyle(
+                  fontSize: 18,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                  font: font,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              // ===== ВОТ ЗДЕСЬ НАЗВАНИЕ ПРОЕКТА =====
+              pw.Text(
+                projectName, // <-- НАЗВАНИЕ ИЗ НАСТРОЕК
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  color: PdfColors.white,
+                  font: font,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'Дата формирования: ${DateFormat('dd.MM.yyyy HH:mm').format(reportTime)}',
+                style: pw.TextStyle(
+                  fontSize: 10,
+                  color: PdfColors.white,
+                  font: font,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      children.add(pw.SizedBox(height: 8));
+    } else {
+      children.add(
+        pw.Container(
+          padding: const pw.EdgeInsets.all(12),
+          color: PdfColors.blue,
+          child: pw.Text(
+            'Продолжение отчета',
+            style: pw.TextStyle(
+              fontSize: 16,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.white,
+              font: font,
+            ),
+          ),
+        ),
+      );
+      children.add(pw.SizedBox(height: 8));
+    }
+
+    // Добавляем все строки с одинаковым стилем
+    for (final line in lines) {
+      if (line.trim().isEmpty) {
+        children.add(pw.SizedBox(height: 6));
+        continue;
+      }
+
+      // Определяем стиль для строки
+      bool isBold =
+          line.contains('АКТ') ||
+          line.contains('БЛОЧНОГО') ||
+          line.contains('ПРОВЕРКА') ||
+          line.contains('РЕЗУЛЬТАТЫ') ||
+          line.contains('ИТОГО') ||
+          line.contains('КОНЕЦ') ||
+          line.contains('1.') ||
+          line.contains('2.') ||
+          line.contains('3.') ||
+          line.contains('4.');
+
+      bool isHeader = line.contains('=') || line.contains('-');
+
+      // Убираем лишние пробелы в начале
+      String cleanLine = line.trim();
+
+      children.add(
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          child: pw.Text(
+            cleanLine,
+            style: pw.TextStyle(
+              fontSize: isHeader ? 10 : (isBold ? 14 : 12),
+              fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+              font: font,
+              color: PdfColors.black,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Номер страницы
+    children.add(pw.SizedBox(height: 16));
+    children.add(
+      pw.Container(
+        padding: const pw.EdgeInsets.all(8),
+        child: pw.Text(
+          'Страница $pageNumber из $totalPages',
+          style: pw.TextStyle(fontSize: 10, color: PdfColors.grey, font: font),
+          textAlign: pw.TextAlign.center,
+        ),
+      ),
+    );
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: children,
+    );
+  }
+}
+
+
+=== FILE: lib\services\rtf_service.dart ===
+
+import 'dart:io';
+import 'dart:convert';
+// import 'package:intl/intl.dart';
+import '../models/report.dart';
+
+class RtfService {
+  // Генерация RTF файла (открывается в Word)
+  Future<File> generateRtf(ReportData report) async {
+    final content = _generateRtfContent(report);
+
+    // Используем системную временную директорию
+    final tempDir = Directory.systemTemp;
+    final file = File('${tempDir.path}/report_${report.id}.rtf');
+    await file.writeAsString(content, encoding: utf8);
+
+    return file;
+  }
+
+  String _generateRtfContent(ReportData report) {
+    final buffer = StringBuffer();
+    // final now = DateTime.now();
+    // final dateFormat = DateFormat('dd.MM.yyyy HH:mm');
+
+    // RTF заголовок
+    buffer.writeln(r'{\rtf1\ansi\deff0');
+    buffer.writeln(r'{\fonttbl{\f0\fnil\fcharset204 Arial;}}');
+    buffer.writeln(r'\viewkind4\uc1\pard\lang1049\f0\fs24');
+
+    // Заголовок
+    buffer.writeln(r'\pard\qc\b\fs36 АКТ ПРОВЕРКИ\b0\fs24\par');
+    buffer.writeln(r'\pard\qc\b\fs32 БЛОЧНОГО ТЕПЛОВОГО ПУНКТА\b0\fs24\par');
+    buffer.writeln(r'\par');
+    buffer.writeln(r'\pard\qc Дата: ${dateFormat.format(now)}\par');
+    buffer.writeln(r'\par');
+
+    // Добавляем текст отчета
+    final text = report.reportText ?? 'Отчет пуст';
+    final lines = text.split('\n');
+    for (var line in lines) {
+      if (line.trim().isEmpty) {
+        buffer.writeln(r'\par');
+      } else {
+        // Экранируем специальные символы
+        final escaped = line
+            .replaceAll(r'\', r'\\')
+            .replaceAll(r'{', r'\{')
+            .replaceAll(r'}', r'\}');
+        buffer.writeln('\\pard $escaped\\par');
+      }
+    }
+
+    buffer.writeln(r'\par');
+    buffer.writeln(r'\pard\qc\b КОНЕЦ ОТЧЕТА\b0\par');
+    buffer.writeln(
+      r'\pard\qc\fs18 Сгенерировано автоматически ${dateFormat.format(now)}\par',
+    );
+
+    // Закрытие RTF
+    buffer.writeln('}');
+
+    return buffer.toString();
+  }
+}
+
+
+=== FILE: lib\theme\app_theme.dart ===
+
+import 'package:flutter/material.dart';
+
+class AppTheme {
+  static ThemeData lightTheme = ThemeData(
+    useMaterial3: true,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xFF1565C0),
+      brightness: Brightness.light,
+    ),
+    appBarTheme: const AppBarTheme(
+      elevation: 0,
+      centerTitle: true,
+      backgroundColor: Color(0xFF1565C0),
+      foregroundColor: Colors.white,
+    ),
+    cardTheme: CardThemeData(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      filled: true,
+      fillColor: Colors.grey.shade50,
+    ),
+  );
+}
+
+
+=== FILE: lib\utils\constants.dart ===
+
+import '../models/check_item.dart';
+
+class Constants {
+  static List<CheckItem> checklistData = [
+    // ========== I этап - ДО ОПРЕССОВКИ ==========
+    CheckItem(
+      id: 'i_1',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Последовательность установленного оборудования',
+      description: 'Проверка последовательности установки оборудования',
+      orderIndex: 1,
+    ),
+    CheckItem(
+      id: 'i_2',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Проверка потоков и направления оборудования',
+      description: 'Проверка направления потоков оборудования при монтаже',
+      orderIndex: 2,
+    ),
+    CheckItem(
+      id: 'i_3',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Теплообменник - подключение патрубков',
+      description: 'Проверка правильности подключения патрубков теплообменника',
+      orderIndex: 3,
+    ),
+    CheckItem(
+      id: 'i_4',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Регулирующий клапан (согласно инструкции производителя)',
+      description:
+          'Проверка установки регулирующего клапана согласно инструкции',
+      orderIndex: 4,
+    ),
+    CheckItem(
+      id: 'i_5',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Привод регулирующего клапана (зависит от температуры)',
+      description: 'Проверка установки привода регулирующего клапана',
+      orderIndex: 5,
+    ),
+    CheckItem(
+      id: 'i_6',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Насос - правильность установки',
+      description: 'Проверка правильности установки насоса',
+      orderIndex: 6,
+    ),
+    CheckItem(
+      id: 'i_7',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Обратный клапан - правильность установки',
+      description: 'Проверка правильности установки обратного клапана',
+      orderIndex: 7,
+    ),
+    CheckItem(
+      id: 'i_8',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Фильтр (вниз на воде, вбок на пару)',
+      description: 'Улавливающая часть по ходу движения',
+      orderIndex: 8,
+    ),
+    CheckItem(
+      id: 'i_9',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Предохранительный клапан (настройка давления срабатывания)',
+      description: 'Проверка установки и настройки давления срабатывания',
+      orderIndex: 9,
+    ),
+    CheckItem(
+      id: 'i_10',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Сепаратор пара - правильность установки',
+      description: 'Проверка правильности установки сепаратора пара',
+      orderIndex: 10,
+    ),
+    CheckItem(
+      id: 'i_11',
+      category: 'I этап - ДО ОПРЕССОВКИ',
+      title: 'Конденсатоотводчик (направление по стрелке)',
+      description:
+          'Проверка направления установки конденсатоотводчика по стрелке',
+      orderIndex: 11,
+    ),
+
+    // ========== II этап - СООТВЕТСТВИЕ СПЕЦИФИКАЦИИ ==========
+    CheckItem(
+      id: 'ii_1',
+      category: 'II этап - СООТВЕТСТВИЕ СПЕЦИФИКАЦИИ',
+      title: 'Теплообменник - соответствие спецификации',
+      description: 'Проверка соответствия теплообменника спецификации',
+      orderIndex: 12,
+    ),
+    CheckItem(
+      id: 'ii_2',
+      category: 'II этап - СООТВЕТСТВИЕ СПЕЦИФИКАЦИИ',
+      title: 'Регулирующий клапан - соответствие спецификации',
+      description: 'Проверка соответствия регулирующего клапана спецификации',
+      orderIndex: 13,
+    ),
+    CheckItem(
+      id: 'ii_3',
+      category: 'II этап - СООТВЕТСТВИЕ СПЕЦИФИКАЦИИ',
+      title: 'Привод регулирующего клапана - соответствие спецификации',
+      description:
+          'Проверка соответствия привода регулирующего клапана спецификации',
+      orderIndex: 14,
+    ),
+    CheckItem(
+      id: 'ii_4',
+      category: 'II этап - СООТВЕТСТВИЕ СПЕЦИФИКАЦИИ',
+      title: 'Насос - соответствие спецификации',
+      description: 'Проверка соответствия насоса спецификации',
+      orderIndex: 15,
+    ),
+    CheckItem(
+      id: 'ii_5',
+      category: 'II этап - СООТВЕТСТВИЕ СПЕЦИФИКАЦИИ',
+      title: 'Обратный клапан - соответствие спецификации',
+      description: 'Проверка соответствия обратного клапана спецификации',
+      orderIndex: 16,
+    ),
+    CheckItem(
+      id: 'ii_6',
+      category: 'II этап - СООТВЕТСТВИЕ СПЕЦИФИКАЦИИ',
+      title: 'Фильтр - соответствие спецификации',
+      description: 'Проверка соответствия фильтра спецификации',
+      orderIndex: 17,
+    ),
+    CheckItem(
+      id: 'ii_7',
+      category: 'II этап - СООТВЕТСТВИЕ СПЕЦИФИКАЦИИ',
+      title: 'Предохранительный клапан - соответствие спецификации',
+      description:
+          'Проверка соответствия предохранительного клапана спецификации',
+      orderIndex: 18,
+    ),
+    CheckItem(
+      id: 'ii_8',
+      category: 'II этап - СООТВЕТСТВИЕ СПЕЦИФИКАЦИИ',
+      title: 'Сепаратор пара - соответствие спецификации',
+      description: 'Проверка соответствия сепаратора пара спецификации',
+      orderIndex: 19,
+    ),
+    CheckItem(
+      id: 'ii_9',
+      category: 'II этап - СООТВЕТСТВИЕ СПЕЦИФИКАЦИИ',
+      title: 'Конденсатоотводчик - соответствие спецификации',
+      description: 'Проверка соответствия конденсатоотводчика спецификации',
+      orderIndex: 20,
+    ),
+
+    // ========== III этап - МОНТАЖ АРМАТУРЫ ==========
+    CheckItem(
+      id: 'iii_1',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Общие габариты по ДШВ рам',
+      description: 'Проверка габаритных размеров по ДШВ рам',
+      orderIndex: 21,
+    ),
+    CheckItem(
+      id: 'iii_2',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Общие габариты по ДШВ трубопровода',
+      description: 'Проверка габаритных размеров по ДШВ трубопровода',
+      orderIndex: 22,
+    ),
+    CheckItem(
+      id: 'iii_3',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Монтаж КИПа (манометр/термометр)',
+      description: 'Проверка монтажа контрольно-измерительных приборов',
+      orderIndex: 23,
+    ),
+    CheckItem(
+      id: 'iii_4',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Положение спускных кранов под манометр',
+      description: 'Есть доступ к спуску воздуха? При спуске не в лицо?',
+      orderIndex: 24,
+    ),
+    CheckItem(
+      id: 'iii_5',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Нет льна - проверка уплотнений',
+      description: 'Проверка отсутствия льна в уплотнительных соединениях',
+      orderIndex: 25,
+    ),
+    CheckItem(
+      id: 'iii_6',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Расширитель для термометра (диаметр до Ду50)',
+      description: 'Проверка установки расширителя для термометра',
+      orderIndex: 26,
+    ),
+    CheckItem(
+      id: 'iii_7',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Положение ручки шаровых кранов',
+      description:
+          'Не выступает за границы/есть возможность открыть/не упирается в раму',
+      orderIndex: 27,
+    ),
+    CheckItem(
+      id: 'iii_8',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Монтаж фильтра (не сливается на оборудование)',
+      description: 'Проверка монтажа фильтра - не сливается ли на оборудование',
+      orderIndex: 28,
+    ),
+    CheckItem(
+      id: 'iii_9',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Предохранительный клапан (опуск для слива)',
+      description: 'Если по воде, может быть опуск вниз для слива',
+      orderIndex: 29,
+    ),
+    CheckItem(
+      id: 'iii_10',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Монтаж конденсатоотводчика по стрелке',
+      description: 'Условие положения бачок слева или справа',
+      orderIndex: 30,
+    ),
+    CheckItem(
+      id: 'iii_11',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Резьбовые соединения закручены',
+      description: 'Проверка надежности резьбовых соединений',
+      orderIndex: 31,
+    ),
+    CheckItem(
+      id: 'iii_12',
+      category: 'III этап - МОНТАЖ АРМАТУРЫ',
+      title: 'Хомутовые соединения',
+      description: 'Проверка надежности хомутовых соединений',
+      orderIndex: 32,
+    ),
+
+    // ========== IV этап - ПОСЛЕ ОПРЕССОВКИ ==========
+    CheckItem(
+      id: 'iv_1',
+      category: 'IV этап - ПОСЛЕ ОПРЕССОВКИ',
+      title: 'Качество покраски - Рама',
+      description: 'Проверка качества покраски рамы',
+      orderIndex: 33,
+    ),
+    CheckItem(
+      id: 'iv_2',
+      category: 'IV этап - ПОСЛЕ ОПРЕССОВКИ',
+      title: 'Качество покраски - Арматура',
+      description: 'Проверка качества покраски арматуры',
+      orderIndex: 34,
+    ),
+    CheckItem(
+      id: 'iv_3',
+      category: 'IV этап - ПОСЛЕ ОПРЕССОВКИ',
+      title: 'Установка заглушек',
+      description: 'Проверка установки заглушек',
+      orderIndex: 35,
+    ),
+    CheckItem(
+      id: 'iv_4',
+      category: 'IV этап - ПОСЛЕ ОПРЕССОВКИ',
+      title: 'Маркировка (центр тяжести)',
+      description: 'Проверка маркировки центра тяжести',
+      orderIndex: 36,
+    ),
+    CheckItem(
+      id: 'iv_5',
+      category: 'IV этап - ПОСЛЕ ОПРЕССОВКИ',
+      title: 'Установка таблички',
+      description: 'Проверка установки заводской таблички',
+      orderIndex: 37,
+    ),
+  ];
+}
+
+
+=== FILE: lib\widgets\category_card.dart ===
+
+import 'package:flutter/material.dart';
+
+class CategoryCard extends StatelessWidget {
+  final String title;
+  final double progress;
+  final bool isComplete;
+  final int totalItems;
+  final int checkedItems;
+  final VoidCallback onTap;
+
+  const CategoryCard({
+    super.key,
+    required this.title,
+    required this.progress,
+    required this.isComplete,
+    required this.totalItems,
+    required this.checkedItems,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isComplete ? Colors.green : Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      isComplete ? '✅ Готово' : '${(progress * 100).round()}%',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isComplete ? Colors.white : Colors.black87,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$checkedItems из $totalItems проверено',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: progress,
+                backgroundColor: Colors.grey.shade200,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  isComplete ? Colors.green : Colors.blue,
+                ),
+                minHeight: 6,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+=== FILE: lib\widgets\commissioning_check_item.dart ===
+
+import 'package:flutter/material.dart';
+
+class CommissioningCheckItem extends StatelessWidget {
+  final String title;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final TextEditingController commentController;
+  final TextEditingController valueController;
+
+  const CommissioningCheckItem({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    required this.commentController,
+    required this.valueController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Checkbox(
+                  value: value,
+                  onChanged: (newValue) {
+                    if (newValue != null) {
+                      onChanged(newValue);
+                    }
+                  },
+                ),
+                Expanded(
+                  child: Text(title, style: const TextStyle(fontSize: 14)),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 40),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: valueController,
+                    decoration: const InputDecoration(
+                      hintText: 'Значение/результат...',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                    ),
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: commentController,
+                    decoration: const InputDecoration(
+                      hintText: 'Комментарий...',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                    ),
+                    maxLines: 2,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+=== FILE: lib\widgets\electrical_check_item.dart ===
+
+import 'package:flutter/material.dart';
+
+class ElectricalCheckItem extends StatelessWidget {
+  final String title;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final TextEditingController commentController;
+
+  const ElectricalCheckItem({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    required this.commentController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Checkbox(
+                  value: value,
+                  onChanged: (newValue) {
+                    if (newValue != null) {
+                      onChanged(newValue);
+                    }
+                  },
+                ),
+                Expanded(
+                  child: Text(title, style: const TextStyle(fontSize: 14)),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 40),
+              child: TextField(
+                controller: commentController,
+                decoration: const InputDecoration(
+                  hintText: 'Комментарий...',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                ),
+                maxLines: 2,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+=== FILE: lib\widgets\photo_tile.dart ===
+
+import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:intl/intl.dart';
+import '../models/photo_record.dart';
+
+class PhotoTile extends StatefulWidget {
+  final PhotoRecord photo;
+  final VoidCallback onDelete;
+
+  const PhotoTile({super.key, required this.photo, required this.onDelete});
+
+  @override
+  State<PhotoTile> createState() => _PhotoTileState();
+}
+
+class _PhotoTileState extends State<PhotoTile> {
+  // bool _isLoading = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Row(
+          children: [
+            // Миниатюра
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(
+                File(widget.photo.path),
+                width: 60,
+                height: 60,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    width: 60,
+                    height: 60,
+                    color: Colors.grey.shade300,
+                    child: const Icon(Icons.broken_image, color: Colors.grey),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Информация
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.photo.description,
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    DateFormat(
+                      'dd.MM.yyyy HH:mm',
+                    ).format(widget.photo.createdAt),
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+            // Кнопка удаления
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              onPressed: () {
+                _showDeleteDialog();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDeleteDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удалить фото?'),
+        content: const Text('Это действие нельзя отменить.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              widget.onDelete();
+            },
+            child: const Text('Удалить', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+}
