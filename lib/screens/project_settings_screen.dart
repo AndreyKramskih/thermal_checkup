@@ -27,11 +27,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = Provider.of<ProjectProvider>(context);
+    // final provider = Provider.of<ProjectProvider>(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      // Разрешаем изменение размера при появлении клавиатуры
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('Настройки проекта'),
@@ -52,7 +51,6 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                 : [Colors.grey[50]!, Colors.grey[200]!],
           ),
         ),
-        // Оборачиваем в SingleChildScrollView для прокрутки при клавиатуре
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -69,12 +67,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // ===== ЗАГОЛОВОК С ИКОНКОЙ - ИСПРАВЛЕНО =====
                       Row(
                         children: [
                           const Icon(Icons.business, color: Colors.blue),
                           const SizedBox(width: 12),
-                          // Оборачиваем текст в Expanded чтобы не переполнялся
                           Expanded(
                             child: Text(
                               'Название теплового пункта',
@@ -83,7 +79,6 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
                               ),
-                              // Разрешаем перенос на новую строку
                               overflow: TextOverflow.ellipsis,
                               maxLines: 2,
                             ),
@@ -116,12 +111,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                           fillColor: isDark ? Colors.grey[800] : Colors.white,
                         ),
                         onChanged: (value) {
-                          // Обновляем предпросмотр
                           setState(() {});
                         },
                       ),
                       const SizedBox(height: 16),
-                      // ===== ПРЕДПРОСМОТР - ИСПРАВЛЕНО =====
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -142,7 +135,6 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                               size: 20,
                             ),
                             const SizedBox(width: 12),
-                            // Оборачиваем в Expanded
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -164,7 +156,6 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                                       fontWeight: FontWeight.bold,
                                       color: Colors.blue,
                                     ),
-                                    // Разрешаем перенос
                                     overflow: TextOverflow.ellipsis,
                                     maxLines: 2,
                                   ),
@@ -178,28 +169,7 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: () {
-                            if (_controller.text.trim().isNotEmpty) {
-                              provider.setProjectName(_controller.text.trim());
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    '✅ Название проекта сохранено: ${_controller.text.trim()}',
-                                  ),
-                                  backgroundColor: Colors.green,
-                                  duration: const Duration(seconds: 2),
-                                ),
-                              );
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('⚠️ Введите название проекта'),
-                                  backgroundColor: Colors.orange,
-                                ),
-                              );
-                            }
-                          },
+                          onPressed: _saveProjectName,
                           icon: const Icon(Icons.save),
                           label: const Text('Сохранить'),
                           style: ElevatedButton.styleFrom(
@@ -236,7 +206,6 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                             size: 20,
                           ),
                           const SizedBox(width: 8),
-                          // Оборачиваем в Expanded
                           Expanded(
                             child: Text(
                               'Информация',
@@ -264,6 +233,39 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ===== СОХРАНЕНИЕ НАЗВАНИЯ С ПРОВЕРКОЙ context.mounted =====
+  Future<void> _saveProjectName() async {
+    final provider = Provider.of<ProjectProvider>(context, listen: false);
+
+    if (_controller.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Введите название проекта'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    await provider.setProjectName(_controller.text.trim());
+
+    if (!mounted) return; // ✅ ПРОВЕРКА (в State)
+
+    Navigator.pop(context);
+
+    if (!mounted) return; // ✅ ПРОВЕРКА (после pop тоже)
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '✅ Название проекта сохранено: ${_controller.text.trim()}',
+        ),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
       ),
     );
   }

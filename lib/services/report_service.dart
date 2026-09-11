@@ -5,6 +5,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:intl/intl.dart';
 import '../models/report.dart';
 import '../models/check_item.dart';
+import 'package:flutter/foundation.dart';
 
 class ReportService {
   // ========== ГЕНЕРАЦИЯ ТЕКСТА ==========
@@ -264,9 +265,9 @@ class ReportService {
     try {
       final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
       _font = pw.Font.ttf(fontData);
-      print('✅ Шрифт Roboto загружен');
+      debugPrint('✅ Шрифт Roboto загружен');
     } catch (e) {
-      print('⚠️ Ошибка загрузки шрифта: $e');
+      debugPrint('⚠️ Ошибка загрузки шрифта: $e');
       _font = pw.Font.helvetica();
     }
   }
@@ -277,7 +278,7 @@ class ReportService {
     required DateTime reportTime,
     required String reportText,
   }) async {
-    print('📄 Генерация PDF отчета...');
+    debugPrint('📄 Генерация PDF отчета...');
 
     await _loadFont();
     final font = _font ?? pw.Font.helvetica();
@@ -355,7 +356,7 @@ class ReportService {
             await dir.create(recursive: true);
           } catch (e) {
             lastError = 'Не могу создать папку $dirPath: $e';
-            print('⚠️ $lastError');
+            debugPrint('⚠️ $lastError');
             continue;
           }
         }
@@ -371,19 +372,21 @@ class ReportService {
           final size = await file.length();
           if (size > 0) {
             savedFile = file;
-            print('✅ PDF сохранен: $filePath (${(size / 1024).round()} KB)');
+            debugPrint(
+              '✅ PDF сохранен: $filePath (${(size / 1024).round()} KB)',
+            );
             break;
           } else {
             lastError = 'Файл создан, но пустой: $filePath';
-            print('⚠️ $lastError');
+            debugPrint('⚠️ $lastError');
           }
         } else {
           lastError = 'Файл не создан: $filePath';
-          print('⚠️ $lastError');
+          debugPrint('⚠️ $lastError');
         }
       } catch (e) {
         lastError = 'Ошибка записи в $dirPath: $e';
-        print('⚠️ $lastError');
+        debugPrint('⚠️ $lastError');
         continue;
       }
     }
@@ -396,7 +399,7 @@ class ReportService {
       );
     }
 
-    print('✅ PDF итог: ${savedFile.path} (${pages.length} страниц)');
+    debugPrint('✅ PDF итог: ${savedFile.path} (${pages.length} страниц)');
     return savedFile;
   }
 

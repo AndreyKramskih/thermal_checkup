@@ -14,12 +14,7 @@ import 'screens/home_screen.dart';
 import 'services/database_service.dart';
 
 void main() {
-  // НЕ делаем await — запускаем UI сразу
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Инициализируем БД в фоне, не блокируя UI
-  DatabaseService().initDatabase();
-
   runApp(const MyApp());
 }
 
@@ -53,7 +48,68 @@ class MyApp extends StatelessWidget {
           ),
         ),
         debugShowCheckedModeBanner: false,
-        home: const HomeScreen(),
+        home: const _BootstrapScreen(),
+      ),
+    );
+  }
+}
+
+// ===== ЭКРАН ИНИЦИАЛИЗАЦИИ =====
+class _BootstrapScreen extends StatefulWidget {
+  const _BootstrapScreen();
+
+  @override
+  State<_BootstrapScreen> createState() => _BootstrapScreenState();
+}
+
+class _BootstrapScreenState extends State<_BootstrapScreen> {
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    // Инициализация БД
+    await DatabaseService().initDatabase();
+
+    if (!mounted) return;
+    setState(() => _ready = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_ready) {
+      return const HomeScreen();
+    }
+
+    return const Scaffold(
+      backgroundColor: Color(0xFF1565C0),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.engineering, size: 80, color: Colors.white),
+            SizedBox(height: 24),
+            Text(
+              'Тепловой пункт',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Проверка монтажа',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+            SizedBox(height: 48),
+            CircularProgressIndicator(color: Colors.white),
+          ],
+        ),
       ),
     );
   }
@@ -176,7 +232,7 @@ class ChecklistProvider extends ChangeNotifier {
   final DatabaseService _db = DatabaseService();
 
   Map<String, List<CheckItem>> _itemsByCategory = {};
-  Map<String, bool> _categoryStatus = {};
+  final Map<String, bool> _categoryStatus = {};
 
   Map<String, List<CheckItem>> get itemsByCategory => _itemsByCategory;
   Map<String, bool> get categoryStatus => _categoryStatus;
@@ -288,12 +344,12 @@ class CommissioningProvider extends ChangeNotifier {
             _comments[key] = commentsData[key] as String? ?? '';
           }
         }
-        print('✅ Данные ПНР загружены');
+        debugPrint('✅ Данные ПНР загружены');
       }
       _isLoaded = true;
       notifyListeners();
     } catch (e) {
-      print('❌ Ошибка загрузки данных ПНР: $e');
+      debugPrint('❌ Ошибка загрузки данных ПНР: $e');
       _isLoaded = true;
       notifyListeners();
     }
@@ -309,7 +365,7 @@ class CommissioningProvider extends ChangeNotifier {
       final data = {'items': Map.from(_items), 'comments': Map.from(_comments)};
       await _db.saveCommissioningData(data);
     } catch (e) {
-      print('❌ Ошибка сохранения данных ПНР: $e');
+      debugPrint('❌ Ошибка сохранения данных ПНР: $e');
     }
   }
 
@@ -398,12 +454,12 @@ class ElectricalProvider extends ChangeNotifier {
           }
         }
 
-        print('✅ Данные электрики загружены');
+        debugPrint('✅ Данные электрики загружены');
       }
       _isLoaded = true;
       notifyListeners();
     } catch (e) {
-      print('❌ Ошибка загрузки данных электрики: $e');
+      debugPrint('❌ Ошибка загрузки данных электрики: $e');
       _isLoaded = true;
       notifyListeners();
     }
@@ -420,7 +476,7 @@ class ElectricalProvider extends ChangeNotifier {
       final data = {'items': Map.from(_items), 'comments': Map.from(_comments)};
       await _db.saveElectricalData(data);
     } catch (e) {
-      print('❌ Ошибка сохранения данных электрики: $e');
+      debugPrint('❌ Ошибка сохранения данных электрики: $e');
     }
   }
 
@@ -523,7 +579,7 @@ class ProjectProvider extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      print('Ошибка загрузки названия проекта: $e');
+      debugPrint('Ошибка загрузки названия проекта: $e');
     }
   }
 
@@ -537,7 +593,7 @@ class ProjectProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_projectNameKey, _projectName);
     } catch (e) {
-      print('Ошибка сохранения названия проекта: $e');
+      debugPrint('Ошибка сохранения названия проекта: $e');
     }
   }
 }
@@ -552,6 +608,7 @@ import 'package:intl/intl.dart';
 import '../models/report.dart';
 import '../models/photo_record.dart';
 import '../services/report_service.dart';
+import 'package:flutter/foundation.dart';
 
 class ReportProvider extends ChangeNotifier {
   final ReportService _reportService = ReportService();
@@ -614,9 +671,11 @@ class ReportProvider extends ChangeNotifier {
 
       _reportText = _currentReport?.reportText;
 
-      print('Отчет сгенерирован, длина текста: ${_reportText?.length ?? 0}');
+      debugPrint(
+        'Отчет сгенерирован, длина текста: ${_reportText?.length ?? 0}',
+      );
     } catch (e) {
-      print('Ошибка при генерации отчета: $e');
+      debugPrint('Ошибка при генерации отчета: $e');
       _reportText = 'Ошибка при генерации отчета: $e';
     } finally {
       _isGenerating = false;
@@ -639,48 +698,39 @@ class ReportProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ========== НОВЫЙ МЕТОД ДЛЯ ОТПРАВКИ ОТЧЕТА С ФОТО ==========
+  // ========== ОТПРАВКА ОТЧЕТА С ФОТО ==========
   Future<void> shareReportWithPhotos(List<PhotoRecord> photos) async {
     if (_pdfFile == null) {
       throw Exception('PDF файл не найден. Сначала сохраните отчет.');
     }
 
-    // Проверяем, существует ли файл
     if (!await _pdfFile!.exists()) {
       throw Exception('Файл отчета не найден на диске');
     }
 
-    // Создаем список файлов для отправки
     final List<XFile> files = [];
-
-    // Добавляем PDF
     files.add(XFile(_pdfFile!.path));
 
-    // Добавляем фото, если они есть
     for (var photo in photos) {
       try {
         final file = File(photo.path);
         if (await file.exists()) {
           files.add(XFile(photo.path));
-          print('✅ Добавлено фото: ${photo.description}');
+          debugPrint('✅ Добавлено фото: ${photo.description}');
         }
       } catch (e) {
-        print('⚠️ Не удалось добавить фото: ${photo.description} - $e');
+        debugPrint('⚠️ Не удалось добавить фото: ${photo.description} - $e');
       }
     }
 
-    // Формируем текст сообщения
-    String text = '📄 Акт проверки блочного теплового пункта\n';
-    text +=
-        '📅 Дата: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}\n\n';
-    text += '📎 К отчету приложены фотоматериалы (${photos.length} шт.)\n';
-    text += 'Отчет сгенерирован автоматически.';
-
-    // Отправляем через share_plus
-    await Share.shareXFiles(
-      files,
-      text: text,
-      subject: 'Акт проверки теплового пункта',
+    // ✅ Отправляем БЕЗ text — только файлы
+    // Текст добавляем только если отправляем 1 файл
+    await SharePlus.instance.share(
+      ShareParams(
+        files: files,
+        // text убираем для мульти-файлов, чтобы избежать ClassCastException
+        subject: 'Акт проверки теплового пункта (${files.length} файлов)',
+      ),
     );
   }
 
@@ -694,13 +744,16 @@ class ReportProvider extends ChangeNotifier {
       throw Exception('Файл отчета не найден на диске');
     }
 
-    await Share.shareXFiles(
-      [XFile(_pdfFile!.path)],
-      text:
-          '📄 Акт проверки блочного теплового пункта\n'
-          'Дата: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}\n\n'
-          'Отчет сгенерирован автоматически.',
-      subject: 'Акт проверки теплового пункта',
+    // ✅ Отправляем через новый API share_plus
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(_pdfFile!.path)],
+        text:
+            '📄 Акт проверки блочного теплового пункта\n'
+            'Дата: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}\n\n'
+            'Отчет сгенерирован автоматически.',
+        subject: 'Акт проверки теплового пункта',
+      ),
     );
   }
 
@@ -1527,15 +1580,33 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    // Загружаем данные ПОСЛЕ первого кадра
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadData();
+    });
   }
 
+  // ===== ЗАГРУЗКА ДАННЫХ =====
+  // Захватываем провайдеры ДО await, чтобы не использовать context после async gap
   Future<void> _loadData() async {
-    await Provider.of<ChecklistProvider>(
-      context,
-      listen: false,
-    ).loadChecklist();
-    await Provider.of<PhotoProvider>(context, listen: false).loadPhotos();
+    try {
+      final checklistProvider = Provider.of<ChecklistProvider>(
+        context,
+        listen: false,
+      );
+      final photoProvider = Provider.of<PhotoProvider>(context, listen: false);
+
+      await checklistProvider.loadChecklist();
+      await photoProvider.loadPhotos();
+
+      debugPrint(
+        '🟢 _loadData: всё загружено (${checklistProvider.itemsByCategory.length} категорий)',
+      );
+    } catch (e, stackTrace) {
+      debugPrint('❌ _loadData ошибка: $e');
+      debugPrint('Стек: $stackTrace');
+    }
   }
 
   @override
@@ -1594,10 +1665,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ===== ДИАЛОГ СБРОСА =====
   void _showResetDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Сбросить все данные?'),
         content: const Text(
           'Будут сброшены:\n'
@@ -1610,21 +1682,23 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Отмена'),
           ),
           TextButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               await _resetAllData();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('✅ Все данные сброшены'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
+
+              // Проверяем State.mounted (не dialogContext — диалог уже закрыт)
+              if (!mounted) return;
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Все данные сброшены'),
+                  backgroundColor: Colors.green,
+                ),
+              );
             },
             child: const Text('Сбросить', style: TextStyle(color: Colors.red)),
           ),
@@ -1633,22 +1707,30 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ===== МЕТОД ПОЛНОГО СБРОСА =====
+  // ===== ПОЛНЫЙ СБРОС =====
+  // Захватываем ВСЕ провайдеры ДО первого await
   Future<void> _resetAllData() async {
-    // 1. Сброс чек-листа монтажа
-    await Provider.of<ChecklistProvider>(context, listen: false).resetAll();
+    final checklistProvider = Provider.of<ChecklistProvider>(
+      context,
+      listen: false,
+    );
+    final electricalProvider = Provider.of<ElectricalProvider>(
+      context,
+      listen: false,
+    );
+    final commissioningProvider = Provider.of<CommissioningProvider>(
+      context,
+      listen: false,
+    );
+    final reportProvider = Provider.of<ReportProvider>(context, listen: false);
+    final photoProvider = Provider.of<PhotoProvider>(context, listen: false);
 
-    // 2. Сброс данных электромонтажа
-    await Provider.of<ElectricalProvider>(context, listen: false).resetAll();
-
-    // 3. Сброс данных ПНР
-    await Provider.of<CommissioningProvider>(context, listen: false).resetAll();
-
-    // 4. Сброс данных отчета
-    Provider.of<ReportProvider>(context, listen: false).resetReport();
-
-    // 5. Перезагрузка фото (они удаляются отдельно через UI)
-    await Provider.of<PhotoProvider>(context, listen: false).loadPhotos();
+    // Теперь безопасно вызываем async-методы
+    await checklistProvider.resetAll();
+    await electricalProvider.resetAll();
+    await commissioningProvider.resetAll();
+    reportProvider.resetReport();
+    await photoProvider.loadPhotos();
   }
 }
 
@@ -1684,11 +1766,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = Provider.of<ProjectProvider>(context);
+    // final provider = Provider.of<ProjectProvider>(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      // Разрешаем изменение размера при появлении клавиатуры
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('Настройки проекта'),
@@ -1709,7 +1790,6 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                 : [Colors.grey[50]!, Colors.grey[200]!],
           ),
         ),
-        // Оборачиваем в SingleChildScrollView для прокрутки при клавиатуре
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -1726,12 +1806,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // ===== ЗАГОЛОВОК С ИКОНКОЙ - ИСПРАВЛЕНО =====
                       Row(
                         children: [
                           const Icon(Icons.business, color: Colors.blue),
                           const SizedBox(width: 12),
-                          // Оборачиваем текст в Expanded чтобы не переполнялся
                           Expanded(
                             child: Text(
                               'Название теплового пункта',
@@ -1740,7 +1818,6 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
                               ),
-                              // Разрешаем перенос на новую строку
                               overflow: TextOverflow.ellipsis,
                               maxLines: 2,
                             ),
@@ -1773,12 +1850,10 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                           fillColor: isDark ? Colors.grey[800] : Colors.white,
                         ),
                         onChanged: (value) {
-                          // Обновляем предпросмотр
                           setState(() {});
                         },
                       ),
                       const SizedBox(height: 16),
-                      // ===== ПРЕДПРОСМОТР - ИСПРАВЛЕНО =====
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -1799,7 +1874,6 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                               size: 20,
                             ),
                             const SizedBox(width: 12),
-                            // Оборачиваем в Expanded
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1821,7 +1895,6 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                                       fontWeight: FontWeight.bold,
                                       color: Colors.blue,
                                     ),
-                                    // Разрешаем перенос
                                     overflow: TextOverflow.ellipsis,
                                     maxLines: 2,
                                   ),
@@ -1835,28 +1908,7 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: () {
-                            if (_controller.text.trim().isNotEmpty) {
-                              provider.setProjectName(_controller.text.trim());
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    '✅ Название проекта сохранено: ${_controller.text.trim()}',
-                                  ),
-                                  backgroundColor: Colors.green,
-                                  duration: const Duration(seconds: 2),
-                                ),
-                              );
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('⚠️ Введите название проекта'),
-                                  backgroundColor: Colors.orange,
-                                ),
-                              );
-                            }
-                          },
+                          onPressed: _saveProjectName,
                           icon: const Icon(Icons.save),
                           label: const Text('Сохранить'),
                           style: ElevatedButton.styleFrom(
@@ -1893,7 +1945,6 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
                             size: 20,
                           ),
                           const SizedBox(width: 8),
-                          // Оборачиваем в Expanded
                           Expanded(
                             child: Text(
                               'Информация',
@@ -1921,6 +1972,39 @@ class _ProjectSettingsScreenState extends State<ProjectSettingsScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ===== СОХРАНЕНИЕ НАЗВАНИЯ С ПРОВЕРКОЙ context.mounted =====
+  Future<void> _saveProjectName() async {
+    final provider = Provider.of<ProjectProvider>(context, listen: false);
+
+    if (_controller.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Введите название проекта'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    await provider.setProjectName(_controller.text.trim());
+
+    if (!mounted) return; // ✅ ПРОВЕРКА (в State)
+
+    Navigator.pop(context);
+
+    if (!mounted) return; // ✅ ПРОВЕРКА (после pop тоже)
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '✅ Название проекта сохранено: ${_controller.text.trim()}',
+        ),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -1959,6 +2043,7 @@ class _ReportScreenState extends State<ReportScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       Provider.of<PhotoProvider>(context, listen: false).loadPhotos();
     });
   }
@@ -1973,13 +2058,12 @@ class _ReportScreenState extends State<ReportScreen> {
   Widget build(BuildContext context) {
     return Consumer3<ChecklistProvider, PhotoProvider, ReportProvider>(
       builder: (context, checklistProvider, photoProvider, reportProvider, child) {
-        // Получаем название проекта
         final projectProvider = Provider.of<ProjectProvider>(context);
         final projectName = projectProvider.projectName;
 
         return Column(
           children: [
-            // Показываем название проекта
+            // ===== ЗАГОЛОВОК С НАЗВАНИЕМ ПРОЕКТА =====
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               padding: const EdgeInsets.all(12),
@@ -2014,7 +2098,7 @@ class _ReportScreenState extends State<ReportScreen> {
                   IconButton(
                     icon: const Icon(Icons.edit, size: 20),
                     onPressed: () {
-                      _showEditProjectNameDialog(context, projectProvider);
+                      _showEditProjectNameDialog(projectProvider);
                     },
                     tooltip: 'Изменить название',
                   ),
@@ -2022,7 +2106,7 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
             ),
 
-            // Кнопка генерации отчета
+            // ===== КНОПКА ГЕНЕРАЦИИ ОТЧЕТА =====
             Padding(
               padding: const EdgeInsets.all(16),
               child: ElevatedButton.icon(
@@ -2033,7 +2117,6 @@ class _ReportScreenState extends State<ReportScreen> {
                           checklistProvider,
                           photoProvider,
                           reportProvider,
-                          context,
                         );
                       },
                 icon: reportProvider.isGenerating
@@ -2057,7 +2140,7 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
             ),
 
-            // Статус отчета
+            // ===== СТАТУС ОТЧЕТА =====
             if (reportProvider.currentReport != null)
               Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -2095,104 +2178,25 @@ class _ReportScreenState extends State<ReportScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.visibility),
-                        onPressed: () {
-                          _showReportPreview(reportProvider);
-                        },
+                        onPressed: () => _showReportPreview(reportProvider),
                       ),
-                      // Кнопка "Сохранить PDF"
                       IconButton(
                         icon: const Icon(Icons.save),
-                        onPressed: () async {
-                          try {
-                            await reportProvider.savePdf(
-                              projectName: projectName,
-                            );
-                            // final path = reportProvider.pdfFile?.path ?? '';
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '✅ PDF сохранен:\n${reportProvider.pdfFile?.path}',
-                                ),
-                                backgroundColor: Colors.green,
-                                duration: const Duration(seconds: 5),
-                                action: SnackBarAction(
-                                  label: 'OK',
-                                  textColor: Colors.white,
-                                  onPressed: () {},
-                                ),
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('❌ Ошибка: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        },
+                        onPressed: () => _savePdf(reportProvider, projectName),
                         color: Colors.orange,
                       ),
-                      // Кнопка "Поделиться PDF"
                       IconButton(
                         icon: const Icon(Icons.share),
-                        onPressed: () async {
-                          try {
-                            if (reportProvider.pdfFile == null) {
-                              await reportProvider.savePdf(
-                                projectName: projectName,
-                              );
-                            }
-                            await reportProvider.shareReport();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  '📤 Открыто окно для отправки PDF',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('❌ Ошибка: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        },
+                        onPressed: () => _sharePdf(reportProvider, projectName),
                         color: Colors.blue,
                       ),
-                      // Кнопка "Поделиться PDF + Фото"
                       IconButton(
                         icon: const Icon(Icons.share_outlined),
-                        onPressed: () async {
-                          try {
-                            if (reportProvider.pdfFile == null) {
-                              await reportProvider.savePdf(
-                                projectName: projectName,
-                              );
-                            }
-                            await reportProvider.shareReportWithPhotos(
-                              photoProvider.photos,
-                            );
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  '📤 Открыто окно для отправки PDF + фото',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('❌ Ошибка: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        },
+                        onPressed: () => _sharePdfWithPhotos(
+                          reportProvider,
+                          photoProvider,
+                          projectName,
+                        ),
                         color: Colors.purple,
                       ),
                     ],
@@ -2200,7 +2204,7 @@ class _ReportScreenState extends State<ReportScreen> {
                 ),
               ),
 
-            // Список фото
+            // ===== СПИСОК ФОТО =====
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
@@ -2218,7 +2222,7 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
             ),
 
-            // Кнопки добавления фото
+            // ===== КНОПКИ ДОБАВЛЕНИЯ ФОТО =====
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -2235,13 +2239,13 @@ class _ReportScreenState extends State<ReportScreen> {
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
-                    onPressed: () => _takePhoto(context, photoProvider),
+                    onPressed: () => _takePhoto(photoProvider),
                     icon: const Icon(Icons.camera_alt),
                     style: IconButton.styleFrom(backgroundColor: Colors.blue),
                   ),
                   const SizedBox(width: 4),
                   IconButton.filled(
-                    onPressed: () => _pickFromGallery(context, photoProvider),
+                    onPressed: () => _pickFromGallery(photoProvider),
                     icon: const Icon(Icons.photo_library),
                     style: IconButton.styleFrom(backgroundColor: Colors.green),
                   ),
@@ -2250,7 +2254,7 @@ class _ReportScreenState extends State<ReportScreen> {
             ),
             const SizedBox(height: 8),
 
-            // Список фото
+            // ===== СПИСОК ФОТО =====
             Expanded(
               child: photoProvider.photos.isEmpty
                   ? const Center(
@@ -2314,7 +2318,6 @@ class _ReportScreenState extends State<ReportScreen> {
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       const SizedBox(height: 4),
-                                      // Имя файла (для справки)
                                       Text(
                                         '📄 ${photo.path.split('/').last}',
                                         style: const TextStyle(
@@ -2343,13 +2346,10 @@ class _ReportScreenState extends State<ReportScreen> {
                                     Icons.delete_outline,
                                     color: Colors.red,
                                   ),
-                                  onPressed: () {
-                                    _showDeleteDialog(
-                                      context,
-                                      photoProvider,
-                                      photo.id,
-                                    );
-                                  },
+                                  onPressed: () => _showDeleteDialog(
+                                    photoProvider,
+                                    photo.id,
+                                  ),
                                 ),
                               ],
                             ),
@@ -2364,13 +2364,107 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
-  // ===== ДИАЛОГ РЕДАКТИРОВАНИЯ НАЗВАНИЯ ПРОЕКТА =====
-  // В report_screen.dart замените метод целиком:
+  // =========================================================================
+  // ВСЕ МЕТОДЫ НИЖЕ ИСПОЛЬЗУЮТ this.context И this.mounted
+  // (НЕ принимают BuildContext как параметр)
+  // =========================================================================
 
-  void _showEditProjectNameDialog(
-    BuildContext context,
-    ProjectProvider provider,
-  ) {
+  // ===== СОХРАНЕНИЕ PDF =====
+  Future<void> _savePdf(
+    ReportProvider reportProvider,
+    String projectName,
+  ) async {
+    try {
+      await reportProvider.savePdf(projectName: projectName);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ PDF сохранен:\n${reportProvider.pdfFile?.path}'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () {},
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // ===== ОТПРАВКА PDF =====
+  Future<void> _sharePdf(
+    ReportProvider reportProvider,
+    String projectName,
+  ) async {
+    try {
+      if (reportProvider.pdfFile == null) {
+        await reportProvider.savePdf(projectName: projectName);
+      }
+
+      if (!mounted) return;
+
+      await reportProvider.shareReport();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📤 Открыто окно для отправки PDF'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // ===== ОТПРАВКА PDF + ФОТО =====
+  Future<void> _sharePdfWithPhotos(
+    ReportProvider reportProvider,
+    PhotoProvider photoProvider,
+    String projectName,
+  ) async {
+    try {
+      if (reportProvider.pdfFile == null) {
+        await reportProvider.savePdf(projectName: projectName);
+      }
+
+      if (!mounted) return;
+
+      await reportProvider.shareReportWithPhotos(photoProvider.photos);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📤 Открыто окно для отправки PDF + фото'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // ===== ДИАЛОГ РЕДАКТИРОВАНИЯ НАЗВАНИЯ ПРОЕКТА =====
+  void _showEditProjectNameDialog(ProjectProvider provider) {
     String newName = provider.projectName;
 
     showDialog(
@@ -2393,17 +2487,26 @@ class _ReportScreenState extends State<ReportScreen> {
             child: const Text('Отмена'),
           ),
           TextButton(
-            onPressed: () {
-              if (newName.trim().isNotEmpty) {
-                provider.setProjectName(newName.trim());
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('✅ Название сохранено: ${newName.trim()}'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+            onPressed: () async {
+              if (newName.trim().isEmpty) {
+                Navigator.pop(dialogContext);
+                return;
               }
+
+              await provider.setProjectName(newName.trim());
+
+              // Проверяем ТОЛЬКО dialogContext
+              if (!dialogContext.mounted) return;
               Navigator.pop(dialogContext);
+
+              // Проверяем ТОЛЬКО this.mounted перед использованием this.context
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('✅ Название сохранено: ${newName.trim()}'),
+                  backgroundColor: Colors.green,
+                ),
+              );
             },
             child: const Text('Сохранить'),
           ),
@@ -2412,12 +2515,13 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
-  Future<void> _takePhoto(
-    BuildContext context,
-    PhotoProvider photoProvider,
-  ) async {
+  // ===== КАМЕРА =====
+  Future<void> _takePhoto(PhotoProvider photoProvider) async {
     try {
       final status = await Permission.camera.request();
+
+      if (!mounted) return;
+
       if (!status.isGranted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -2445,33 +2549,33 @@ class _ReportScreenState extends State<ReportScreen> {
         imageQuality: 85,
       );
 
+      if (!mounted) return;
+
       if (image != null) {
         final file = File(image.path);
         await photoProvider.addPhoto(file, _photoDescriptionController.text);
         _photoDescriptionController.clear();
 
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ Фото с камеры добавлено'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (context.mounted) {
+        if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+          const SnackBar(
+            content: Text('✅ Фото с камеры добавлено'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
     }
   }
 
-  Future<void> _pickFromGallery(
-    BuildContext context,
-    PhotoProvider photoProvider,
-  ) async {
+  // ===== ГАЛЕРЕЯ =====
+  Future<void> _pickFromGallery(PhotoProvider photoProvider) async {
     try {
       if (_photoDescriptionController.text.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2490,48 +2594,49 @@ class _ReportScreenState extends State<ReportScreen> {
         imageQuality: 85,
       );
 
+      if (!mounted) return;
+
       if (image != null) {
         final file = File(image.path);
         await photoProvider.addPhoto(file, _photoDescriptionController.text);
         _photoDescriptionController.clear();
 
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ Фото из галереи добавлено'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (context.mounted) {
+        if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+          const SnackBar(
+            content: Text('✅ Фото из галереи добавлено'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
     }
   }
 
-  void _showDeleteDialog(
-    BuildContext context,
-    PhotoProvider photoProvider,
-    String photoId,
-  ) {
+  // ===== УДАЛЕНИЕ ФОТО =====
+  void _showDeleteDialog(PhotoProvider photoProvider, String photoId) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Удалить фото?'),
         content: const Text('Это действие нельзя отменить.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Отмена'),
           ),
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              photoProvider.deletePhoto(photoId);
+            onPressed: () async {
+              await photoProvider.deletePhoto(photoId);
+
+              if (!dialogContext.mounted) return;
+              Navigator.pop(dialogContext);
             },
             child: const Text('Удалить', style: TextStyle(color: Colors.red)),
           ),
@@ -2540,11 +2645,11 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
+  // ===== ГЕНЕРАЦИЯ ОТЧЕТА =====
   void _generateReport(
     ChecklistProvider checklistProvider,
     PhotoProvider photoProvider,
     ReportProvider reportProvider,
-    BuildContext context,
   ) {
     try {
       final electricalProvider = Provider.of<ElectricalProvider>(
@@ -2635,13 +2740,14 @@ class _ReportScreenState extends State<ReportScreen> {
         ),
       );
     } catch (e) {
-      print('❌ Ошибка: $e');
+      debugPrint('❌ Ошибка: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
       );
     }
   }
 
+  // ===== ПРЕДПРОСМОТР ОТЧЕТА =====
   void _showReportPreview(ReportProvider reportProvider) {
     final reportText = reportProvider.reportText ?? 'Отчет пуст';
     final projectProvider = Provider.of<ProjectProvider>(
@@ -2652,7 +2758,7 @@ class _ReportScreenState extends State<ReportScreen> {
 
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Row(
             children: [
@@ -2702,12 +2808,17 @@ class _ReportScreenState extends State<ReportScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Закрыть'),
             ),
             TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: reportText));
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: reportText));
+
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+
+                if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('📋 Текст отчета скопирован в буфер обмена'),
@@ -2718,34 +2829,16 @@ class _ReportScreenState extends State<ReportScreen> {
               child: const Text('📋 Копировать текст'),
             ),
             TextButton(
-              onPressed: () async {
-                try {
-                  Navigator.pop(context);
-                  if (reportProvider.pdfFile == null) {
-                    await reportProvider.savePdf(projectName: projectName);
-                  }
-                  await reportProvider.shareReport();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('📤 Открыто окно для отправки PDF'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('❌ Ошибка: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _sharePdf(reportProvider, projectName);
               },
               child: const Text('📤 Поделиться PDF'),
             ),
             TextButton(
               onPressed: () {
-                Navigator.pop(context);
-                _shareWithPhotos(reportProvider);
+                Navigator.pop(dialogContext);
+                _sharePdfWithPhotosFromPreview(reportProvider, projectName);
               },
               child: const Text('📸 PDF + фото'),
             ),
@@ -2755,19 +2848,23 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
-  void _shareWithPhotos(ReportProvider reportProvider) async {
+  // ===== ОТПРАВКА С ФОТО ИЗ ПРЕДПРОСМОТРА =====
+  Future<void> _sharePdfWithPhotosFromPreview(
+    ReportProvider reportProvider,
+    String projectName,
+  ) async {
     try {
       final photoProvider = Provider.of<PhotoProvider>(context, listen: false);
-      final projectProvider = Provider.of<ProjectProvider>(
-        context,
-        listen: false,
-      );
 
       if (reportProvider.pdfFile == null) {
-        await reportProvider.savePdf(projectName: projectProvider.projectName);
+        await reportProvider.savePdf(projectName: projectName);
       }
 
+      if (!mounted) return;
+
       await reportProvider.shareReportWithPhotos(photoProvider.photos);
+
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -2776,6 +2873,8 @@ class _ReportScreenState extends State<ReportScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
       );
@@ -2791,6 +2890,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/check_item.dart';
 import '../models/photo_record.dart';
 import '../utils/constants.dart';
+import 'package:flutter/foundation.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -2815,7 +2915,7 @@ class DatabaseService {
     final newVersion = '2.0';
 
     if (currentVersion != newVersion) {
-      print(
+      debugPrint(
         '🔄 Обновление данных чек-листа с версии $currentVersion до $newVersion',
       );
       await _initChecklistData(force: true);
@@ -2834,7 +2934,7 @@ class DatabaseService {
     final itemsJson = items.map((item) => item.toMap()).toList();
     await _prefs.setString(_checklistKey, jsonEncode(itemsJson));
 
-    print('✅ Инициализировано ${items.length} пунктов чек-листа');
+    debugPrint('✅ Инициализировано ${items.length} пунктов чек-листа');
   }
 
   // ========== ЧЕКЛИСТ ==========
@@ -2843,9 +2943,17 @@ class DatabaseService {
     if (!_isInitialized) await initDatabase();
 
     final String? itemsJson = _prefs.getString(_checklistKey);
+
+    debugPrint('📖 getChecklistItems: JSON null? ${itemsJson == null}');
+
     if (itemsJson == null) return {};
 
     final List<dynamic> itemsList = jsonDecode(itemsJson);
+
+    debugPrint(
+      '📖 getChecklistItems: распарсено ${itemsList.length} элементов',
+    );
+
     final List<CheckItem> items = itemsList
         .map((item) => CheckItem.fromMap(item as Map<String, dynamic>))
         .toList();
@@ -2857,6 +2965,9 @@ class DatabaseService {
       }
       result[item.category]!.add(item);
     }
+
+    debugPrint('📖 getChecklistItems: ${result.length} категорий');
+
     return result;
   }
 
@@ -2930,7 +3041,7 @@ class DatabaseService {
   Future<void> saveElectricalData(Map<String, dynamic> data) async {
     if (!_isInitialized) await initDatabase();
     await _prefs.setString(_electricalKey, jsonEncode(data));
-    print('💾 Данные электрики сохранены');
+    debugPrint('💾 Данные электрики сохранены');
   }
 
   Future<Map<String, dynamic>?> getElectricalData() async {
@@ -2947,7 +3058,7 @@ class DatabaseService {
   Future<void> saveCommissioningData(Map<String, dynamic> data) async {
     if (!_isInitialized) await initDatabase();
     await _prefs.setString(_commissioningKey, jsonEncode(data));
-    print('💾 Данные ПНР сохранены');
+    debugPrint('💾 Данные ПНР сохранены');
   }
 
   Future<Map<String, dynamic>?> getCommissioningData() async {
@@ -2979,6 +3090,7 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import '../models/photo_record.dart';
 import 'database_service.dart';
+import 'package:flutter/foundation.dart';
 
 class PhotoService {
   final ImagePicker _picker = ImagePicker();
@@ -2997,7 +3109,7 @@ class PhotoService {
         return File(image.path);
       }
     } catch (e) {
-      print('Ошибка при выборе фото: $e');
+      debugPrint('Ошибка при выборе фото: $e');
     }
     return null;
   }
@@ -3033,7 +3145,7 @@ class PhotoService {
           try {
             await dir.create(recursive: true);
           } catch (e) {
-            print('⚠️ Не могу создать $dirPath: $e');
+            debugPrint('⚠️ Не могу создать $dirPath: $e');
             continue;
           }
         }
@@ -3062,14 +3174,16 @@ class PhotoService {
           final size = await copiedFile.length();
           if (size > 0) {
             savedPath = fullPath;
-            print('✅ Фото сохранено: $fullPath (${(size / 1024).round()} KB)');
+            debugPrint(
+              '✅ Фото сохранено: $fullPath (${(size / 1024).round()} KB)',
+            );
             break;
           } else {
-            print('⚠️ Файл создан, но пустой: $fullPath');
+            debugPrint('⚠️ Файл создан, но пустой: $fullPath');
           }
         }
       } catch (e) {
-        print('⚠️ Ошибка при сохранении в $dirPath: $e');
+        debugPrint('⚠️ Ошибка при сохранении в $dirPath: $e');
         continue;
       }
     }
@@ -3077,8 +3191,10 @@ class PhotoService {
     // Fallback: если нигде не сохранилось — используем оригинальный путь
     if (savedPath == null) {
       savedPath = imageFile.path;
-      print('⚠️ Все пути недоступны. Использую оригинальный путь: $savedPath');
-      print('⚠️ Проверенные пути: ${triedPaths.join(", ")}');
+      debugPrint(
+        '⚠️ Все пути недоступны. Использую оригинальный путь: $savedPath',
+      );
+      debugPrint('⚠️ Проверенные пути: ${triedPaths.join(", ")}');
     }
 
     final photo = PhotoRecord(
@@ -3116,10 +3232,10 @@ class PhotoService {
       final file = File(photo.path);
       if (await file.exists()) {
         await file.delete();
-        print('🗑️ Файл удален: ${photo.path}');
+        debugPrint('🗑️ Файл удален: ${photo.path}');
       }
     } catch (e) {
-      print('⚠️ Ошибка при удалении файла: $e');
+      debugPrint('⚠️ Ошибка при удалении файла: $e');
     }
 
     await _db.deletePhoto(id);
@@ -3136,6 +3252,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:intl/intl.dart';
 import '../models/report.dart';
 import '../models/check_item.dart';
+import 'package:flutter/foundation.dart';
 
 class ReportService {
   // ========== ГЕНЕРАЦИЯ ТЕКСТА ==========
@@ -3395,9 +3512,9 @@ class ReportService {
     try {
       final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
       _font = pw.Font.ttf(fontData);
-      print('✅ Шрифт Roboto загружен');
+      debugPrint('✅ Шрифт Roboto загружен');
     } catch (e) {
-      print('⚠️ Ошибка загрузки шрифта: $e');
+      debugPrint('⚠️ Ошибка загрузки шрифта: $e');
       _font = pw.Font.helvetica();
     }
   }
@@ -3408,7 +3525,7 @@ class ReportService {
     required DateTime reportTime,
     required String reportText,
   }) async {
-    print('📄 Генерация PDF отчета...');
+    debugPrint('📄 Генерация PDF отчета...');
 
     await _loadFont();
     final font = _font ?? pw.Font.helvetica();
@@ -3486,7 +3603,7 @@ class ReportService {
             await dir.create(recursive: true);
           } catch (e) {
             lastError = 'Не могу создать папку $dirPath: $e';
-            print('⚠️ $lastError');
+            debugPrint('⚠️ $lastError');
             continue;
           }
         }
@@ -3502,19 +3619,21 @@ class ReportService {
           final size = await file.length();
           if (size > 0) {
             savedFile = file;
-            print('✅ PDF сохранен: $filePath (${(size / 1024).round()} KB)');
+            debugPrint(
+              '✅ PDF сохранен: $filePath (${(size / 1024).round()} KB)',
+            );
             break;
           } else {
             lastError = 'Файл создан, но пустой: $filePath';
-            print('⚠️ $lastError');
+            debugPrint('⚠️ $lastError');
           }
         } else {
           lastError = 'Файл не создан: $filePath';
-          print('⚠️ $lastError');
+          debugPrint('⚠️ $lastError');
         }
       } catch (e) {
         lastError = 'Ошибка записи в $dirPath: $e';
-        print('⚠️ $lastError');
+        debugPrint('⚠️ $lastError');
         continue;
       }
     }
@@ -3527,7 +3646,7 @@ class ReportService {
       );
     }
 
-    print('✅ PDF итог: ${savedFile.path} (${pages.length} страниц)');
+    debugPrint('✅ PDF итог: ${savedFile.path} (${pages.length} страниц)');
     return savedFile;
   }
 

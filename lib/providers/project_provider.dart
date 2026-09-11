@@ -21,7 +21,7 @@ class ProjectProvider extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      print('Ошибка загрузки названия проекта: $e');
+      debugPrint('Ошибка загрузки названия проекта: $e');
     }
   }
 
@@ -35,7 +35,7 @@ class ProjectProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_projectNameKey, _projectName);
     } catch (e) {
-      print('Ошибка сохранения названия проекта: $e');
+      debugPrint('Ошибка сохранения названия проекта: $e');
     }
   }
 }

@@ -6,7 +6,7 @@ class ChecklistProvider extends ChangeNotifier {
   final DatabaseService _db = DatabaseService();
 
   Map<String, List<CheckItem>> _itemsByCategory = {};
-  Map<String, bool> _categoryStatus = {};
+  final Map<String, bool> _categoryStatus = {};
 
   Map<String, List<CheckItem>> get itemsByCategory => _itemsByCategory;
   Map<String, bool> get categoryStatus => _categoryStatus;

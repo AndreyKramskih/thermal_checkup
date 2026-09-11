@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../models/report.dart';
 import '../models/photo_record.dart';
 import '../services/report_service.dart';
+import 'package:flutter/foundation.dart';
 
 class ReportProvider extends ChangeNotifier {
   final ReportService _reportService = ReportService();
@@ -67,9 +68,11 @@ class ReportProvider extends ChangeNotifier {
 
       _reportText = _currentReport?.reportText;
 
-      print('Отчет сгенерирован, длина текста: ${_reportText?.length ?? 0}');
+      debugPrint(
+        'Отчет сгенерирован, длина текста: ${_reportText?.length ?? 0}',
+      );
     } catch (e) {
-      print('Ошибка при генерации отчета: $e');
+      debugPrint('Ошибка при генерации отчета: $e');
       _reportText = 'Ошибка при генерации отчета: $e';
     } finally {
       _isGenerating = false;
@@ -92,48 +95,39 @@ class ReportProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ========== НОВЫЙ МЕТОД ДЛЯ ОТПРАВКИ ОТЧЕТА С ФОТО ==========
+  // ========== ОТПРАВКА ОТЧЕТА С ФОТО ==========
   Future<void> shareReportWithPhotos(List<PhotoRecord> photos) async {
     if (_pdfFile == null) {
       throw Exception('PDF файл не найден. Сначала сохраните отчет.');
     }
 
-    // Проверяем, существует ли файл
     if (!await _pdfFile!.exists()) {
       throw Exception('Файл отчета не найден на диске');
     }
 
-    // Создаем список файлов для отправки
     final List<XFile> files = [];
-
-    // Добавляем PDF
     files.add(XFile(_pdfFile!.path));
 
-    // Добавляем фото, если они есть
     for (var photo in photos) {
       try {
         final file = File(photo.path);
         if (await file.exists()) {
           files.add(XFile(photo.path));
-          print('✅ Добавлено фото: ${photo.description}');
+          debugPrint('✅ Добавлено фото: ${photo.description}');
         }
       } catch (e) {
-        print('⚠️ Не удалось добавить фото: ${photo.description} - $e');
+        debugPrint('⚠️ Не удалось добавить фото: ${photo.description} - $e');
       }
     }
 
-    // Формируем текст сообщения
-    String text = '📄 Акт проверки блочного теплового пункта\n';
-    text +=
-        '📅 Дата: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}\n\n';
-    text += '📎 К отчету приложены фотоматериалы (${photos.length} шт.)\n';
-    text += 'Отчет сгенерирован автоматически.';
-
-    // Отправляем через share_plus
-    await Share.shareXFiles(
-      files,
-      text: text,
-      subject: 'Акт проверки теплового пункта',
+    // ✅ Отправляем БЕЗ text — только файлы
+    // Текст добавляем только если отправляем 1 файл
+    await SharePlus.instance.share(
+      ShareParams(
+        files: files,
+        // text убираем для мульти-файлов, чтобы избежать ClassCastException
+        subject: 'Акт проверки теплового пункта (${files.length} файлов)',
+      ),
     );
   }
 
@@ -147,13 +141,16 @@ class ReportProvider extends ChangeNotifier {
       throw Exception('Файл отчета не найден на диске');
     }
 
-    await Share.shareXFiles(
-      [XFile(_pdfFile!.path)],
-      text:
-          '📄 Акт проверки блочного теплового пункта\n'
-          'Дата: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}\n\n'
-          'Отчет сгенерирован автоматически.',
-      subject: 'Акт проверки теплового пункта',
+    // ✅ Отправляем через новый API share_plus
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(_pdfFile!.path)],
+        text:
+            '📄 Акт проверки блочного теплового пункта\n'
+            'Дата: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}\n\n'
+            'Отчет сгенерирован автоматически.',
+        subject: 'Акт проверки теплового пункта',
+      ),
     );
   }
 

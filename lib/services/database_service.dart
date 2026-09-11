@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/check_item.dart';
 import '../models/photo_record.dart';
 import '../utils/constants.dart';
+import 'package:flutter/foundation.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -27,7 +28,7 @@ class DatabaseService {
     final newVersion = '2.0';
 
     if (currentVersion != newVersion) {
-      print(
+      debugPrint(
         '🔄 Обновление данных чек-листа с версии $currentVersion до $newVersion',
       );
       await _initChecklistData(force: true);
@@ -46,7 +47,7 @@ class DatabaseService {
     final itemsJson = items.map((item) => item.toMap()).toList();
     await _prefs.setString(_checklistKey, jsonEncode(itemsJson));
 
-    print('✅ Инициализировано ${items.length} пунктов чек-листа');
+    debugPrint('✅ Инициализировано ${items.length} пунктов чек-листа');
   }
 
   // ========== ЧЕКЛИСТ ==========
@@ -55,9 +56,17 @@ class DatabaseService {
     if (!_isInitialized) await initDatabase();
 
     final String? itemsJson = _prefs.getString(_checklistKey);
+
+    debugPrint('📖 getChecklistItems: JSON null? ${itemsJson == null}');
+
     if (itemsJson == null) return {};
 
     final List<dynamic> itemsList = jsonDecode(itemsJson);
+
+    debugPrint(
+      '📖 getChecklistItems: распарсено ${itemsList.length} элементов',
+    );
+
     final List<CheckItem> items = itemsList
         .map((item) => CheckItem.fromMap(item as Map<String, dynamic>))
         .toList();
@@ -69,6 +78,9 @@ class DatabaseService {
       }
       result[item.category]!.add(item);
     }
+
+    debugPrint('📖 getChecklistItems: ${result.length} категорий');
+
     return result;
   }
 
@@ -142,7 +154,7 @@ class DatabaseService {
   Future<void> saveElectricalData(Map<String, dynamic> data) async {
     if (!_isInitialized) await initDatabase();
     await _prefs.setString(_electricalKey, jsonEncode(data));
-    print('💾 Данные электрики сохранены');
+    debugPrint('💾 Данные электрики сохранены');
   }
 
   Future<Map<String, dynamic>?> getElectricalData() async {
@@ -159,7 +171,7 @@ class DatabaseService {
   Future<void> saveCommissioningData(Map<String, dynamic> data) async {
     if (!_isInitialized) await initDatabase();
     await _prefs.setString(_commissioningKey, jsonEncode(data));
-    print('💾 Данные ПНР сохранены');
+    debugPrint('💾 Данные ПНР сохранены');
   }
 
   Future<Map<String, dynamic>?> getCommissioningData() async {

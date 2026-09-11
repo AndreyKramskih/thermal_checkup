@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import '../models/photo_record.dart';
 import 'database_service.dart';
+import 'package:flutter/foundation.dart';
 
 class PhotoService {
   final ImagePicker _picker = ImagePicker();
@@ -20,7 +21,7 @@ class PhotoService {
         return File(image.path);
       }
     } catch (e) {
-      print('Ошибка при выборе фото: $e');
+      debugPrint('Ошибка при выборе фото: $e');
     }
     return null;
   }
@@ -56,7 +57,7 @@ class PhotoService {
           try {
             await dir.create(recursive: true);
           } catch (e) {
-            print('⚠️ Не могу создать $dirPath: $e');
+            debugPrint('⚠️ Не могу создать $dirPath: $e');
             continue;
           }
         }
@@ -85,14 +86,16 @@ class PhotoService {
           final size = await copiedFile.length();
           if (size > 0) {
             savedPath = fullPath;
-            print('✅ Фото сохранено: $fullPath (${(size / 1024).round()} KB)');
+            debugPrint(
+              '✅ Фото сохранено: $fullPath (${(size / 1024).round()} KB)',
+            );
             break;
           } else {
-            print('⚠️ Файл создан, но пустой: $fullPath');
+            debugPrint('⚠️ Файл создан, но пустой: $fullPath');
           }
         }
       } catch (e) {
-        print('⚠️ Ошибка при сохранении в $dirPath: $e');
+        debugPrint('⚠️ Ошибка при сохранении в $dirPath: $e');
         continue;
       }
     }
@@ -100,8 +103,10 @@ class PhotoService {
     // Fallback: если нигде не сохранилось — используем оригинальный путь
     if (savedPath == null) {
       savedPath = imageFile.path;
-      print('⚠️ Все пути недоступны. Использую оригинальный путь: $savedPath');
-      print('⚠️ Проверенные пути: ${triedPaths.join(", ")}');
+      debugPrint(
+        '⚠️ Все пути недоступны. Использую оригинальный путь: $savedPath',
+      );
+      debugPrint('⚠️ Проверенные пути: ${triedPaths.join(", ")}');
     }
 
     final photo = PhotoRecord(
@@ -139,10 +144,10 @@ class PhotoService {
       final file = File(photo.path);
       if (await file.exists()) {
         await file.delete();
-        print('🗑️ Файл удален: ${photo.path}');
+        debugPrint('🗑️ Файл удален: ${photo.path}');
       }
     } catch (e) {
-      print('⚠️ Ошибка при удалении файла: $e');
+      debugPrint('⚠️ Ошибка при удалении файла: $e');
     }
 
     await _db.deletePhoto(id);

@@ -43,12 +43,12 @@ class CommissioningProvider extends ChangeNotifier {
             _comments[key] = commentsData[key] as String? ?? '';
           }
         }
-        print('✅ Данные ПНР загружены');
+        debugPrint('✅ Данные ПНР загружены');
       }
       _isLoaded = true;
       notifyListeners();
     } catch (e) {
-      print('❌ Ошибка загрузки данных ПНР: $e');
+      debugPrint('❌ Ошибка загрузки данных ПНР: $e');
       _isLoaded = true;
       notifyListeners();
     }
@@ -64,7 +64,7 @@ class CommissioningProvider extends ChangeNotifier {
       final data = {'items': Map.from(_items), 'comments': Map.from(_comments)};
       await _db.saveCommissioningData(data);
     } catch (e) {
-      print('❌ Ошибка сохранения данных ПНР: $e');
+      debugPrint('❌ Ошибка сохранения данных ПНР: $e');
     }
   }
 

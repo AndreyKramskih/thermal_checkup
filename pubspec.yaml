@@ -96,6 +96,10 @@ flutter:
     - assets/images/
     - assets/fonts/Roboto-Regular.ttf
 
+analyzer:
+  exclude:
+    - lib/combine.dart
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

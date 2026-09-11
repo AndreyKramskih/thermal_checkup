@@ -10,12 +10,7 @@ import 'screens/home_screen.dart';
 import 'services/database_service.dart';
 
 void main() {
-  // НЕ делаем await — запускаем UI сразу
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Инициализируем БД в фоне, не блокируя UI
-  DatabaseService().initDatabase();
-
   runApp(const MyApp());
 }
 
@@ -49,7 +44,68 @@ class MyApp extends StatelessWidget {
           ),
         ),
         debugShowCheckedModeBanner: false,
-        home: const HomeScreen(),
+        home: const _BootstrapScreen(),
+      ),
+    );
+  }
+}
+
+// ===== ЭКРАН ИНИЦИАЛИЗАЦИИ =====
+class _BootstrapScreen extends StatefulWidget {
+  const _BootstrapScreen();
+
+  @override
+  State<_BootstrapScreen> createState() => _BootstrapScreenState();
+}
+
+class _BootstrapScreenState extends State<_BootstrapScreen> {
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    // Инициализация БД
+    await DatabaseService().initDatabase();
+
+    if (!mounted) return;
+    setState(() => _ready = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_ready) {
+      return const HomeScreen();
+    }
+
+    return const Scaffold(
+      backgroundColor: Color(0xFF1565C0),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.engineering, size: 80, color: Colors.white),
+            SizedBox(height: 24),
+            Text(
+              'Тепловой пункт',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Проверка монтажа',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+            SizedBox(height: 48),
+            CircularProgressIndicator(color: Colors.white),
+          ],
+        ),
       ),
     );
   }

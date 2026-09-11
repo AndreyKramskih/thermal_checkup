@@ -38,15 +38,33 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    // Загружаем данные ПОСЛЕ первого кадра
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadData();
+    });
   }
 
+  // ===== ЗАГРУЗКА ДАННЫХ =====
+  // Захватываем провайдеры ДО await, чтобы не использовать context после async gap
   Future<void> _loadData() async {
-    await Provider.of<ChecklistProvider>(
-      context,
-      listen: false,
-    ).loadChecklist();
-    await Provider.of<PhotoProvider>(context, listen: false).loadPhotos();
+    try {
+      final checklistProvider = Provider.of<ChecklistProvider>(
+        context,
+        listen: false,
+      );
+      final photoProvider = Provider.of<PhotoProvider>(context, listen: false);
+
+      await checklistProvider.loadChecklist();
+      await photoProvider.loadPhotos();
+
+      debugPrint(
+        '🟢 _loadData: всё загружено (${checklistProvider.itemsByCategory.length} категорий)',
+      );
+    } catch (e, stackTrace) {
+      debugPrint('❌ _loadData ошибка: $e');
+      debugPrint('Стек: $stackTrace');
+    }
   }
 
   @override
@@ -105,10 +123,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ===== ДИАЛОГ СБРОСА =====
   void _showResetDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Сбросить все данные?'),
         content: const Text(
           'Будут сброшены:\n'
@@ -121,21 +140,23 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Отмена'),
           ),
           TextButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               await _resetAllData();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('✅ Все данные сброшены'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
+
+              // Проверяем State.mounted (не dialogContext — диалог уже закрыт)
+              if (!mounted) return;
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Все данные сброшены'),
+                  backgroundColor: Colors.green,
+                ),
+              );
             },
             child: const Text('Сбросить', style: TextStyle(color: Colors.red)),
           ),
@@ -144,21 +165,29 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ===== МЕТОД ПОЛНОГО СБРОСА =====
+  // ===== ПОЛНЫЙ СБРОС =====
+  // Захватываем ВСЕ провайдеры ДО первого await
   Future<void> _resetAllData() async {
-    // 1. Сброс чек-листа монтажа
-    await Provider.of<ChecklistProvider>(context, listen: false).resetAll();
+    final checklistProvider = Provider.of<ChecklistProvider>(
+      context,
+      listen: false,
+    );
+    final electricalProvider = Provider.of<ElectricalProvider>(
+      context,
+      listen: false,
+    );
+    final commissioningProvider = Provider.of<CommissioningProvider>(
+      context,
+      listen: false,
+    );
+    final reportProvider = Provider.of<ReportProvider>(context, listen: false);
+    final photoProvider = Provider.of<PhotoProvider>(context, listen: false);
 
-    // 2. Сброс данных электромонтажа
-    await Provider.of<ElectricalProvider>(context, listen: false).resetAll();
-
-    // 3. Сброс данных ПНР
-    await Provider.of<CommissioningProvider>(context, listen: false).resetAll();
-
-    // 4. Сброс данных отчета
-    Provider.of<ReportProvider>(context, listen: false).resetReport();
-
-    // 5. Перезагрузка фото (они удаляются отдельно через UI)
-    await Provider.of<PhotoProvider>(context, listen: false).loadPhotos();
+    // Теперь безопасно вызываем async-методы
+    await checklistProvider.resetAll();
+    await electricalProvider.resetAll();
+    await commissioningProvider.resetAll();
+    reportProvider.resetReport();
+    await photoProvider.loadPhotos();
   }
 }

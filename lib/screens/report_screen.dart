@@ -28,6 +28,7 @@ class _ReportScreenState extends State<ReportScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       Provider.of<PhotoProvider>(context, listen: false).loadPhotos();
     });
   }
@@ -42,13 +43,12 @@ class _ReportScreenState extends State<ReportScreen> {
   Widget build(BuildContext context) {
     return Consumer3<ChecklistProvider, PhotoProvider, ReportProvider>(
       builder: (context, checklistProvider, photoProvider, reportProvider, child) {
-        // Получаем название проекта
         final projectProvider = Provider.of<ProjectProvider>(context);
         final projectName = projectProvider.projectName;
 
         return Column(
           children: [
-            // Показываем название проекта
+            // ===== ЗАГОЛОВОК С НАЗВАНИЕМ ПРОЕКТА =====
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               padding: const EdgeInsets.all(12),
@@ -83,7 +83,7 @@ class _ReportScreenState extends State<ReportScreen> {
                   IconButton(
                     icon: const Icon(Icons.edit, size: 20),
                     onPressed: () {
-                      _showEditProjectNameDialog(context, projectProvider);
+                      _showEditProjectNameDialog(projectProvider);
                     },
                     tooltip: 'Изменить название',
                   ),
@@ -91,7 +91,7 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
             ),
 
-            // Кнопка генерации отчета
+            // ===== КНОПКА ГЕНЕРАЦИИ ОТЧЕТА =====
             Padding(
               padding: const EdgeInsets.all(16),
               child: ElevatedButton.icon(
@@ -102,7 +102,6 @@ class _ReportScreenState extends State<ReportScreen> {
                           checklistProvider,
                           photoProvider,
                           reportProvider,
-                          context,
                         );
                       },
                 icon: reportProvider.isGenerating
@@ -126,7 +125,7 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
             ),
 
-            // Статус отчета
+            // ===== СТАТУС ОТЧЕТА =====
             if (reportProvider.currentReport != null)
               Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -164,104 +163,25 @@ class _ReportScreenState extends State<ReportScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.visibility),
-                        onPressed: () {
-                          _showReportPreview(reportProvider);
-                        },
+                        onPressed: () => _showReportPreview(reportProvider),
                       ),
-                      // Кнопка "Сохранить PDF"
                       IconButton(
                         icon: const Icon(Icons.save),
-                        onPressed: () async {
-                          try {
-                            await reportProvider.savePdf(
-                              projectName: projectName,
-                            );
-                            // final path = reportProvider.pdfFile?.path ?? '';
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '✅ PDF сохранен:\n${reportProvider.pdfFile?.path}',
-                                ),
-                                backgroundColor: Colors.green,
-                                duration: const Duration(seconds: 5),
-                                action: SnackBarAction(
-                                  label: 'OK',
-                                  textColor: Colors.white,
-                                  onPressed: () {},
-                                ),
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('❌ Ошибка: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        },
+                        onPressed: () => _savePdf(reportProvider, projectName),
                         color: Colors.orange,
                       ),
-                      // Кнопка "Поделиться PDF"
                       IconButton(
                         icon: const Icon(Icons.share),
-                        onPressed: () async {
-                          try {
-                            if (reportProvider.pdfFile == null) {
-                              await reportProvider.savePdf(
-                                projectName: projectName,
-                              );
-                            }
-                            await reportProvider.shareReport();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  '📤 Открыто окно для отправки PDF',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('❌ Ошибка: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        },
+                        onPressed: () => _sharePdf(reportProvider, projectName),
                         color: Colors.blue,
                       ),
-                      // Кнопка "Поделиться PDF + Фото"
                       IconButton(
                         icon: const Icon(Icons.share_outlined),
-                        onPressed: () async {
-                          try {
-                            if (reportProvider.pdfFile == null) {
-                              await reportProvider.savePdf(
-                                projectName: projectName,
-                              );
-                            }
-                            await reportProvider.shareReportWithPhotos(
-                              photoProvider.photos,
-                            );
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  '📤 Открыто окно для отправки PDF + фото',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('❌ Ошибка: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        },
+                        onPressed: () => _sharePdfWithPhotos(
+                          reportProvider,
+                          photoProvider,
+                          projectName,
+                        ),
                         color: Colors.purple,
                       ),
                     ],
@@ -269,7 +189,7 @@ class _ReportScreenState extends State<ReportScreen> {
                 ),
               ),
 
-            // Список фото
+            // ===== СПИСОК ФОТО =====
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
@@ -287,7 +207,7 @@ class _ReportScreenState extends State<ReportScreen> {
               ),
             ),
 
-            // Кнопки добавления фото
+            // ===== КНОПКИ ДОБАВЛЕНИЯ ФОТО =====
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -304,13 +224,13 @@ class _ReportScreenState extends State<ReportScreen> {
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
-                    onPressed: () => _takePhoto(context, photoProvider),
+                    onPressed: () => _takePhoto(photoProvider),
                     icon: const Icon(Icons.camera_alt),
                     style: IconButton.styleFrom(backgroundColor: Colors.blue),
                   ),
                   const SizedBox(width: 4),
                   IconButton.filled(
-                    onPressed: () => _pickFromGallery(context, photoProvider),
+                    onPressed: () => _pickFromGallery(photoProvider),
                     icon: const Icon(Icons.photo_library),
                     style: IconButton.styleFrom(backgroundColor: Colors.green),
                   ),
@@ -319,7 +239,7 @@ class _ReportScreenState extends State<ReportScreen> {
             ),
             const SizedBox(height: 8),
 
-            // Список фото
+            // ===== СПИСОК ФОТО =====
             Expanded(
               child: photoProvider.photos.isEmpty
                   ? const Center(
@@ -383,7 +303,6 @@ class _ReportScreenState extends State<ReportScreen> {
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       const SizedBox(height: 4),
-                                      // Имя файла (для справки)
                                       Text(
                                         '📄 ${photo.path.split('/').last}',
                                         style: const TextStyle(
@@ -412,13 +331,10 @@ class _ReportScreenState extends State<ReportScreen> {
                                     Icons.delete_outline,
                                     color: Colors.red,
                                   ),
-                                  onPressed: () {
-                                    _showDeleteDialog(
-                                      context,
-                                      photoProvider,
-                                      photo.id,
-                                    );
-                                  },
+                                  onPressed: () => _showDeleteDialog(
+                                    photoProvider,
+                                    photo.id,
+                                  ),
                                 ),
                               ],
                             ),
@@ -433,13 +349,107 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
-  // ===== ДИАЛОГ РЕДАКТИРОВАНИЯ НАЗВАНИЯ ПРОЕКТА =====
-  // В report_screen.dart замените метод целиком:
+  // =========================================================================
+  // ВСЕ МЕТОДЫ НИЖЕ ИСПОЛЬЗУЮТ this.context И this.mounted
+  // (НЕ принимают BuildContext как параметр)
+  // =========================================================================
 
-  void _showEditProjectNameDialog(
-    BuildContext context,
-    ProjectProvider provider,
-  ) {
+  // ===== СОХРАНЕНИЕ PDF =====
+  Future<void> _savePdf(
+    ReportProvider reportProvider,
+    String projectName,
+  ) async {
+    try {
+      await reportProvider.savePdf(projectName: projectName);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ PDF сохранен:\n${reportProvider.pdfFile?.path}'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () {},
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // ===== ОТПРАВКА PDF =====
+  Future<void> _sharePdf(
+    ReportProvider reportProvider,
+    String projectName,
+  ) async {
+    try {
+      if (reportProvider.pdfFile == null) {
+        await reportProvider.savePdf(projectName: projectName);
+      }
+
+      if (!mounted) return;
+
+      await reportProvider.shareReport();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📤 Открыто окно для отправки PDF'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // ===== ОТПРАВКА PDF + ФОТО =====
+  Future<void> _sharePdfWithPhotos(
+    ReportProvider reportProvider,
+    PhotoProvider photoProvider,
+    String projectName,
+  ) async {
+    try {
+      if (reportProvider.pdfFile == null) {
+        await reportProvider.savePdf(projectName: projectName);
+      }
+
+      if (!mounted) return;
+
+      await reportProvider.shareReportWithPhotos(photoProvider.photos);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📤 Открыто окно для отправки PDF + фото'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // ===== ДИАЛОГ РЕДАКТИРОВАНИЯ НАЗВАНИЯ ПРОЕКТА =====
+  void _showEditProjectNameDialog(ProjectProvider provider) {
     String newName = provider.projectName;
 
     showDialog(
@@ -462,17 +472,26 @@ class _ReportScreenState extends State<ReportScreen> {
             child: const Text('Отмена'),
           ),
           TextButton(
-            onPressed: () {
-              if (newName.trim().isNotEmpty) {
-                provider.setProjectName(newName.trim());
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('✅ Название сохранено: ${newName.trim()}'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+            onPressed: () async {
+              if (newName.trim().isEmpty) {
+                Navigator.pop(dialogContext);
+                return;
               }
+
+              await provider.setProjectName(newName.trim());
+
+              // Проверяем ТОЛЬКО dialogContext
+              if (!dialogContext.mounted) return;
               Navigator.pop(dialogContext);
+
+              // Проверяем ТОЛЬКО this.mounted перед использованием this.context
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('✅ Название сохранено: ${newName.trim()}'),
+                  backgroundColor: Colors.green,
+                ),
+              );
             },
             child: const Text('Сохранить'),
           ),
@@ -481,12 +500,13 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
-  Future<void> _takePhoto(
-    BuildContext context,
-    PhotoProvider photoProvider,
-  ) async {
+  // ===== КАМЕРА =====
+  Future<void> _takePhoto(PhotoProvider photoProvider) async {
     try {
       final status = await Permission.camera.request();
+
+      if (!mounted) return;
+
       if (!status.isGranted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -514,33 +534,33 @@ class _ReportScreenState extends State<ReportScreen> {
         imageQuality: 85,
       );
 
+      if (!mounted) return;
+
       if (image != null) {
         final file = File(image.path);
         await photoProvider.addPhoto(file, _photoDescriptionController.text);
         _photoDescriptionController.clear();
 
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ Фото с камеры добавлено'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (context.mounted) {
+        if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+          const SnackBar(
+            content: Text('✅ Фото с камеры добавлено'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
     }
   }
 
-  Future<void> _pickFromGallery(
-    BuildContext context,
-    PhotoProvider photoProvider,
-  ) async {
+  // ===== ГАЛЕРЕЯ =====
+  Future<void> _pickFromGallery(PhotoProvider photoProvider) async {
     try {
       if (_photoDescriptionController.text.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -559,48 +579,49 @@ class _ReportScreenState extends State<ReportScreen> {
         imageQuality: 85,
       );
 
+      if (!mounted) return;
+
       if (image != null) {
         final file = File(image.path);
         await photoProvider.addPhoto(file, _photoDescriptionController.text);
         _photoDescriptionController.clear();
 
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ Фото из галереи добавлено'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (context.mounted) {
+        if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+          const SnackBar(
+            content: Text('✅ Фото из галереи добавлено'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
+      );
     }
   }
 
-  void _showDeleteDialog(
-    BuildContext context,
-    PhotoProvider photoProvider,
-    String photoId,
-  ) {
+  // ===== УДАЛЕНИЕ ФОТО =====
+  void _showDeleteDialog(PhotoProvider photoProvider, String photoId) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Удалить фото?'),
         content: const Text('Это действие нельзя отменить.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Отмена'),
           ),
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              photoProvider.deletePhoto(photoId);
+            onPressed: () async {
+              await photoProvider.deletePhoto(photoId);
+
+              if (!dialogContext.mounted) return;
+              Navigator.pop(dialogContext);
             },
             child: const Text('Удалить', style: TextStyle(color: Colors.red)),
           ),
@@ -609,11 +630,11 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
+  // ===== ГЕНЕРАЦИЯ ОТЧЕТА =====
   void _generateReport(
     ChecklistProvider checklistProvider,
     PhotoProvider photoProvider,
     ReportProvider reportProvider,
-    BuildContext context,
   ) {
     try {
       final electricalProvider = Provider.of<ElectricalProvider>(
@@ -704,13 +725,14 @@ class _ReportScreenState extends State<ReportScreen> {
         ),
       );
     } catch (e) {
-      print('❌ Ошибка: $e');
+      debugPrint('❌ Ошибка: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
       );
     }
   }
 
+  // ===== ПРЕДПРОСМОТР ОТЧЕТА =====
   void _showReportPreview(ReportProvider reportProvider) {
     final reportText = reportProvider.reportText ?? 'Отчет пуст';
     final projectProvider = Provider.of<ProjectProvider>(
@@ -721,7 +743,7 @@ class _ReportScreenState extends State<ReportScreen> {
 
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Row(
             children: [
@@ -771,12 +793,17 @@ class _ReportScreenState extends State<ReportScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Закрыть'),
             ),
             TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: reportText));
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: reportText));
+
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+
+                if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('📋 Текст отчета скопирован в буфер обмена'),
@@ -787,34 +814,16 @@ class _ReportScreenState extends State<ReportScreen> {
               child: const Text('📋 Копировать текст'),
             ),
             TextButton(
-              onPressed: () async {
-                try {
-                  Navigator.pop(context);
-                  if (reportProvider.pdfFile == null) {
-                    await reportProvider.savePdf(projectName: projectName);
-                  }
-                  await reportProvider.shareReport();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('📤 Открыто окно для отправки PDF'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('❌ Ошибка: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _sharePdf(reportProvider, projectName);
               },
               child: const Text('📤 Поделиться PDF'),
             ),
             TextButton(
               onPressed: () {
-                Navigator.pop(context);
-                _shareWithPhotos(reportProvider);
+                Navigator.pop(dialogContext);
+                _sharePdfWithPhotosFromPreview(reportProvider, projectName);
               },
               child: const Text('📸 PDF + фото'),
             ),
@@ -824,19 +833,23 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
-  void _shareWithPhotos(ReportProvider reportProvider) async {
+  // ===== ОТПРАВКА С ФОТО ИЗ ПРЕДПРОСМОТРА =====
+  Future<void> _sharePdfWithPhotosFromPreview(
+    ReportProvider reportProvider,
+    String projectName,
+  ) async {
     try {
       final photoProvider = Provider.of<PhotoProvider>(context, listen: false);
-      final projectProvider = Provider.of<ProjectProvider>(
-        context,
-        listen: false,
-      );
 
       if (reportProvider.pdfFile == null) {
-        await reportProvider.savePdf(projectName: projectProvider.projectName);
+        await reportProvider.savePdf(projectName: projectName);
       }
 
+      if (!mounted) return;
+
       await reportProvider.shareReportWithPhotos(photoProvider.photos);
+
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -845,6 +858,8 @@ class _ReportScreenState extends State<ReportScreen> {
         ),
       );
     } catch (e) {
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Ошибка: $e'), backgroundColor: Colors.red),
       );

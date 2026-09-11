@@ -47,12 +47,12 @@ class ElectricalProvider extends ChangeNotifier {
           }
         }
 
-        print('✅ Данные электрики загружены');
+        debugPrint('✅ Данные электрики загружены');
       }
       _isLoaded = true;
       notifyListeners();
     } catch (e) {
-      print('❌ Ошибка загрузки данных электрики: $e');
+      debugPrint('❌ Ошибка загрузки данных электрики: $e');
       _isLoaded = true;
       notifyListeners();
     }
@@ -69,7 +69,7 @@ class ElectricalProvider extends ChangeNotifier {
       final data = {'items': Map.from(_items), 'comments': Map.from(_comments)};
       await _db.saveElectricalData(data);
     } catch (e) {
-      print('❌ Ошибка сохранения данных электрики: $e');
+      debugPrint('❌ Ошибка сохранения данных электрики: $e');
     }
   }
 
